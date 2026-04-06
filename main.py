@@ -12,22 +12,26 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from config import INSTRUMENTS, OBSIDIAN_VAULT_PATH
+from config import INSTRUMENTS, OBSIDIAN_DAILY_PATH, OBSIDIAN_WEEKLY_PATH
 from scrapers.myfxbook import scrape_myfxbook
 from scrapers.fxssi import scrape_fxssi
 from scrapers.ig_sentiment import scrape_ig_sentiment
 from scrapers.coinglass import scrape_coinglass
+from scrapers.cot import fetch_cot_data
 from generate_report import generate_report, load_master_prompt
 
 
-async def collect_all_data() -> dict:
-    """MyFXBook優先でデータを取得し、失敗銘柄はFXSSI→IGの順でフォールバックする。"""
+async def collect_all_data(weekly: bool = False) -> dict:
+    """MyFXBook優先でデータを取得し、失敗銘柄はFXSSI→IGの順でフォールバックする。
+    weekly=True のときは COT データも取得する。
+    """
     print("[1/4] データ取得を開始...")
 
     results = {
         "timestamp": datetime.now().isoformat(),
         "retail_sentiment": {},  # 銘柄ごとに1ソースのみ格納
         "coinglass": {},
+        "cot": None,  # ウィークリー時のみ使用
     }
 
     # --- Phase 1: MyFXBook + CoinGlass を並列取得 ---
@@ -104,6 +108,20 @@ async def collect_all_data() -> dict:
                     }
                     print(f"  [ERROR] ig/{symbol}: {err}")
 
+    # --- COT データ取得（ウィークリーのみ）---
+    if weekly:
+        print("  COT: CFTC APIからデータ取得中...")
+        try:
+            cot = fetch_cot_data()
+            results["cot"] = cot
+            if cot.get("error"):
+                print(f"  [WARN]  COT: 一部エラー: {cot['error']}")
+            else:
+                print(f"  [OK]    COT: Report Date {cot['report_date']}")
+        except Exception as e:
+            results["cot"] = {"text": None, "error": str(e)}
+            print(f"  [ERROR] COT: {e}")
+
     return results
 
 
@@ -154,10 +172,20 @@ def format_scraped_data(data: dict) -> str:
     else:
         lines.append("- BTCUSD: 取得不可")
 
+    # --- COT（ウィークリー時のみ）---
+    cot = data.get("cot")
+    if cot is not None:
+        lines.append("")
+        if cot.get("text"):
+            lines.append(cot["text"])
+        else:
+            err = cot.get("error", "取得不可")
+            lines.append(f"COTデータ取得不可（{err}）")
+
     return "\n".join(lines)
 
 
-def save_report(report: str, scraped_data: dict, prefix: str = "Daily_Bias_Report"):
+def save_report(report: str, scraped_data: dict, prefix: str = "Daily_Bias_Report", weekly: bool = False):
     """レポートをローカルとObsidian Vaultに保存する。"""
     today = datetime.now().strftime("%Y-%m-%d")
     filename = f"{prefix}_{today}.md"
@@ -180,8 +208,8 @@ def save_report(report: str, scraped_data: dict, prefix: str = "Daily_Bias_Repor
                     symbol_data.pop("raw_text", None)
     json_path.write_text(json.dumps(clean_data, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    # Obsidian Vault に保存
-    vault_path = OBSIDIAN_VAULT_PATH
+    # Obsidian Vault に保存（Daily/Weekly で出力先を分ける）
+    vault_path = OBSIDIAN_WEEKLY_PATH if weekly else OBSIDIAN_DAILY_PATH
     vault_path.mkdir(parents=True, exist_ok=True)
     obsidian_path = vault_path / filename
     obsidian_path.write_text(report, encoding="utf-8")
@@ -204,7 +232,7 @@ async def main():
         scraped_data = {"timestamp": datetime.now().isoformat()}
         formatted_data = "（スクレイピングスキップ。Web検索でデータを取得してください。）"
     else:
-        scraped_data = await collect_all_data()
+        scraped_data = await collect_all_data(weekly=weekly)
         formatted_data = format_scraped_data(scraped_data)
 
     print(f"\n[2/4] 取得データサマリー:")
@@ -236,7 +264,7 @@ async def main():
     # Step 4: 保存
     prefix = "Weekly_Bias_Report" if weekly else "Daily_Bias_Report"
     print(f"\n[SAVE] レポートを保存中...")
-    save_report(report, scraped_data, prefix=prefix)
+    save_report(report, scraped_data, prefix=prefix, weekly=weekly)
 
     print(f"\n{'=' * 60}")
     print("完了!")

@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(ls /Users/laa/Developer/dev/ict-daily-bias/*.py)"
+      "Bash(ls /Users/laa/Developer/dev/ict-daily-bias/*.py)",
+      "Bash(python scrapers/cot.py)",
+      "Bash(python3 scrapers/cot.py)"
     ]
   }
 }
