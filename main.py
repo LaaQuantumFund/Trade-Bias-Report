@@ -18,6 +18,7 @@ from scrapers.fxssi import scrape_fxssi
 from scrapers.ig_sentiment import scrape_ig_sentiment
 from scrapers.coinglass import scrape_coinglass
 from scrapers.cot import fetch_cot_data
+from scrapers.twelvedata import fetch_price_data
 from generate_report import generate_report, load_master_prompt
 
 
@@ -29,10 +30,21 @@ async def collect_all_data(weekly: bool = False) -> dict:
 
     results = {
         "timestamp": datetime.now().isoformat(),
+        "price_data": None,  # Twelve Data API
         "retail_sentiment": {},  # 銘柄ごとに1ソースのみ格納
         "coinglass": {},
         "cot": None,  # ウィークリー時のみ使用
     }
+
+    # --- Twelve Data: 価格データ取得 ---
+    print("  Twelve Data: 価格データ取得中...")
+    try:
+        price_text = fetch_price_data()
+        results["price_data"] = price_text
+        print("  [OK]    Twelve Data: 価格データ取得完了")
+    except Exception as e:
+        results["price_data"] = f"Twelve Data 取得不可（{e}）"
+        print(f"  [ERROR] Twelve Data: {e}")
 
     # --- Phase 1: MyFXBook + CoinGlass を並列取得 ---
     myfxbook_targets = [(sym, cfg["myfxbook_slug"]) for sym, cfg in INSTRUMENTS.items() if cfg.get("myfxbook_slug")]
@@ -132,6 +144,12 @@ def format_scraped_data(data: dict) -> str:
     lines = []
     lines.append(f"データ取得日時: {data['timestamp']}")
     lines.append("")
+
+    # --- 価格データ（Twelve Data API）---
+    price_data = data.get("price_data")
+    if price_data:
+        lines.append(price_data)
+        lines.append("")
 
     # --- リテールセンチメント（銘柄ごとに1ソース）---
     lines.append("### リテールポジション (Retail Sentiment)")

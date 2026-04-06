@@ -3,7 +3,13 @@
     "allow": [
       "Bash(ls /Users/laa/Developer/dev/ict-daily-bias/*.py)",
       "Bash(python scrapers/cot.py)",
-      "Bash(python3 scrapers/cot.py)"
+      "Bash(python3 scrapers/cot.py)",
+      "Bash(python scrapers/twelvedata.py)",
+      "Bash(pip3 install:*)",
+      "Bash(python3 scrapers/twelvedata.py)",
+      "Bash(.venv/bin/python3 scrapers/twelvedata.py)",
+      "Bash(.venv/bin/python3 main.py --scrape-only)",
+      "Bash(.venv/bin/python3 -c ':*)"
     ]
   }
 }
