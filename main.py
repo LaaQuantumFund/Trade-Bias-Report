@@ -21,97 +21,121 @@ from generate_report import generate_report, load_master_prompt
 
 
 async def collect_all_data() -> dict:
-    """全ソースからデータを並列取得する。"""
+    """MyFXBook優先でデータを取得し、失敗銘柄はFXSSI→IGの順でフォールバックする。"""
     print("[1/4] データ取得を開始...")
 
     results = {
         "timestamp": datetime.now().isoformat(),
-        "myfxbook": {},
-        "fxssi": {},
-        "ig": {},
+        "retail_sentiment": {},  # 銘柄ごとに1ソースのみ格納
         "coinglass": {},
     }
 
-    tasks = []
+    # --- Phase 1: MyFXBook + CoinGlass を並列取得 ---
+    myfxbook_targets = [(sym, cfg["myfxbook_slug"]) for sym, cfg in INSTRUMENTS.items() if cfg.get("myfxbook_slug")]
+    phase1_tasks = [("myfxbook", sym, scrape_myfxbook(slug)) for sym, slug in myfxbook_targets]
+    phase1_tasks.append(("coinglass", "BTCUSD", scrape_coinglass()))
 
-    # MyFXBook
-    for symbol, cfg in INSTRUMENTS.items():
-        if cfg.get("myfxbook_slug"):
-            tasks.append(("myfxbook", symbol, scrape_myfxbook(cfg["myfxbook_slug"])))
+    print(f"  Phase 1: {len(phase1_tasks)} タスクを並列実行中（MyFXBook + CoinGlass）...")
+    phase1_results = await asyncio.gather(*[t[2] for t in phase1_tasks], return_exceptions=True)
 
-    # IG Client Sentiment
-    for symbol in INSTRUMENTS:
-        tasks.append(("ig", symbol, scrape_ig_sentiment(symbol)))
-
-    # CoinGlass (BTC のみ)
-    tasks.append(("coinglass", "BTCUSD", scrape_coinglass()))
-
-    # FXSSI (一括取得)
-    tasks.append(("fxssi", "ALL", scrape_fxssi()))
-
-    # 並列実行
-    print(f"  {len(tasks)} 個のスクレイピングタスクを並列実行中...")
-    coroutines = [t[2] for t in tasks]
-    task_results = await asyncio.gather(*coroutines, return_exceptions=True)
-
-    for i, (source, symbol, _) in enumerate(tasks):
-        res = task_results[i]
-        if isinstance(res, Exception):
-            results[source][symbol] = {"error": str(res)}
-            print(f"  [ERROR] {source}/{symbol}: {res}")
-        else:
-            results[source][symbol] = res
-            error = res.get("error")
-            if error:
-                print(f"  [WARN]  {source}/{symbol}: {error}")
+    failed_symbols = []
+    for i, (source, symbol, _) in enumerate(phase1_tasks):
+        res = phase1_results[i]
+        if source == "coinglass":
+            if isinstance(res, Exception):
+                results["coinglass"]["BTCUSD"] = {"error": str(res)}
+                print(f"  [ERROR] coinglass/BTCUSD: {res}")
             else:
-                print(f"  [OK]    {source}/{symbol}")
+                results["coinglass"]["BTCUSD"] = res
+                print(f"  [WARN]  coinglass/BTCUSD: {res['error']}" if res.get("error") else f"  [OK]    coinglass/BTCUSD")
+        else:
+            # MyFXBook: long_pct が取得できていれば成功
+            ok = not isinstance(res, Exception) and isinstance(res, dict) and res.get("long_pct") is not None
+            if ok:
+                results["retail_sentiment"][symbol] = {**res, "_fallback": None}
+                print(f"  [OK]    myfxbook/{symbol}")
+            else:
+                err = str(res) if isinstance(res, Exception) else (res.get("error") if isinstance(res, dict) else "不明")
+                print(f"  [WARN]  myfxbook/{symbol}: {err} → フォールバック予定")
+                failed_symbols.append(symbol)
+
+    # --- Phase 2: 失敗銘柄のフォールバック（FXSSI → IG）---
+    if failed_symbols:
+        print(f"  Phase 2: フォールバック取得中（{failed_symbols}）...")
+        fxssi_result = await scrape_fxssi()
+        fxssi_data = fxssi_result.get("data", {}) if not fxssi_result.get("error") else {}
+
+        ig_needed = []
+        for symbol in failed_symbols:
+            if symbol in fxssi_data:
+                d = fxssi_data[symbol]
+                results["retail_sentiment"][symbol] = {
+                    "source": "FXSSI",
+                    "symbol": symbol,
+                    "long_pct": d.get("buy_pct"),
+                    "short_pct": d.get("sell_pct"),
+                    "avg_long_entry": None,
+                    "avg_short_entry": None,
+                    "_fallback": "FXSSI",
+                    "error": None,
+                }
+                print(f"  [OK]    fxssi/{symbol} (フォールバック)")
+            else:
+                ig_needed.append(symbol)
+                print(f"  [WARN]  fxssi/{symbol}: データなし → IG試行")
+
+        if ig_needed:
+            ig_results = await asyncio.gather(*[scrape_ig_sentiment(sym) for sym in ig_needed], return_exceptions=True)
+            for i, symbol in enumerate(ig_needed):
+                res = ig_results[i]
+                ok = not isinstance(res, Exception) and isinstance(res, dict) and res.get("long_pct") is not None
+                if ok:
+                    results["retail_sentiment"][symbol] = {**res, "_fallback": "IG"}
+                    print(f"  [OK]    ig/{symbol} (フォールバック)")
+                else:
+                    err = str(res) if isinstance(res, Exception) else (res.get("error") if isinstance(res, dict) else "取得不可")
+                    results["retail_sentiment"][symbol] = {
+                        "source": "IG",
+                        "symbol": symbol,
+                        "long_pct": None,
+                        "short_pct": None,
+                        "_fallback": "IG",
+                        "error": err,
+                    }
+                    print(f"  [ERROR] ig/{symbol}: {err}")
 
     return results
 
 
 def format_scraped_data(data: dict) -> str:
-    """取得データをClaude APIに渡すテキスト形式に整形する。"""
+    """取得データをClaude APIに渡すテキスト形式に整形する。
+    リテールセンチメントは銘柄ごとに1ソースのみ表示する。
+    """
     lines = []
     lines.append(f"データ取得日時: {data['timestamp']}")
     lines.append("")
 
-    # --- MyFXBook ---
-    lines.append("### MyFXBook Sentiment")
-    for symbol, d in data.get("myfxbook", {}).items():
-        if isinstance(d, dict) and not d.get("error"):
-            lines.append(f"- {d.get('symbol', symbol)}: "
-                         f"Long {d.get('long_pct', '取得不可')}% / "
-                         f"Short {d.get('short_pct', '取得不可')}%")
+    # --- リテールセンチメント（銘柄ごとに1ソース）---
+    lines.append("### リテールポジション (Retail Sentiment)")
+    for symbol, d in data.get("retail_sentiment", {}).items():
+        if not isinstance(d, dict):
+            lines.append(f"- {symbol}: 取得不可")
+            continue
+
+        source = d.get("source", "不明")
+        fallback = d.get("_fallback")
+        long_pct = d.get("long_pct")
+        short_pct = d.get("short_pct")
+
+        if long_pct is not None:
+            line = f"- {symbol} ({source}): Long {long_pct}% / Short {short_pct}%"
             if d.get("avg_long_entry"):
-                lines.append(f"  平均ロングエントリー: {d['avg_long_entry']}")
-            if d.get("avg_short_entry"):
-                lines.append(f"  平均ショートエントリー: {d['avg_short_entry']}")
+                line += f", 平均ロング {d['avg_long_entry']:,.4g}"
+            lines.append(line)
+            if fallback:
+                lines.append(f"  ※ MyFXBook取得不可のため{source}にフォールバック")
         else:
-            err = d.get("error", "不明なエラー") if isinstance(d, dict) else str(d)
-            lines.append(f"- {symbol}: 取得不可（{err}）")
-    lines.append("")
-
-    # --- FXSSI ---
-    lines.append("### FXSSI Current Ratio")
-    fxssi_all = data.get("fxssi", {}).get("ALL", {})
-    fxssi_data = fxssi_all.get("data", {}) if isinstance(fxssi_all, dict) else {}
-    if fxssi_data:
-        for symbol, d in fxssi_data.items():
-            lines.append(f"- {symbol}: Buy {d.get('buy_pct', '?')}% / Sell {d.get('sell_pct', '?')}%")
-    else:
-        err = fxssi_all.get("error", "取得不可") if isinstance(fxssi_all, dict) else "取得不可"
-        lines.append(f"- 全銘柄: 取得不可（{err}）")
-    lines.append("")
-
-    # --- IG Client Sentiment ---
-    lines.append("### IG Client Sentiment")
-    for symbol, d in data.get("ig", {}).items():
-        if isinstance(d, dict) and d.get("long_pct") is not None:
-            lines.append(f"- {d.get('symbol', symbol)}: "
-                         f"Long {d['long_pct']}% / Short {d['short_pct']}%")
-        else:
-            err = d.get("error", "取得不可") if isinstance(d, dict) else "取得不可"
+            err = d.get("error", "取得不可")
             lines.append(f"- {symbol}: 取得不可（{err}）")
     lines.append("")
 

@@ -1,4 +1,4 @@
-# ICT Daily Bias Report — Master Prompt v3.0
+# ICT Daily Bias Report
 
 あなたはICT (Inner Circle Trader) / SMC (Smart Money Concepts) を専門とするプロのマクロアナリストです。
 以下の指示に従い、私のトレード判断に必要な情報を網羅的に収集・分析し、レポートを生成してください。
@@ -38,21 +38,7 @@
 | 銘柄 | 現在価格 | 前日比 | バイアス | 根拠（1行） | BSL注目帯 | SSL注目帯 | PDH | PDL |
 |---|---|---|---|---|---|---|---|---|
 
-### 2-2. SMT Divergence チェック
-
-| SMTペア | ペアA 前日High更新 | ペアB 前日High更新 | ペアA 前日Low更新 | ペアB 前日Low更新 | SMT判定 |
-|---|---|---|---|---|---|
-| XAUUSD vs XAGUSD | Yes/No | Yes/No | Yes/No | Yes/No | なし / Bearish SMT / Bullish SMT |
-
-**SMT判定基準:**
-- ペアAがHighを更新したがペアBが更新しなかった → Bearish SMT（上昇の持続性が弱い）
-- ペアAがLowを更新したがペアBが更新しなかった → Bullish SMT（下落の持続性が弱い）
-- 両方とも同方向に更新 → SMTなし（方向性一致）
-
-**補助SMT（市場全体のリスクセンチメント確認用）:**
-- EURUSD vs GBPUSD、ES1! vs NQ1! に顕著なDivergenceが発生している場合のみ、1〜2行で注記する（発生していない場合は省略）
-
-### 2-3. 各銘柄の詳細
+### 2-2. 各銘柄の詳細
 
 以下のA〜Dを、4銘柄（DXY, XAUUSD, USDJPY, BTCUSD）それぞれについて記述すること。
 
@@ -63,9 +49,7 @@
 
 #### B. リテールポジション比率 & オープンオーダー分析
 
-以下のソースから最新データを検索・取得し、テーブルにまとめる。
-
-**ソース1: MyFXBook Sentiment**
+**メインソース: MyFXBook Sentiment**
 （参照URL: https://www.myfxbook.com/community/outlook/[銘柄名]）
 
 | 項目 | 値 |
@@ -74,23 +58,12 @@
 | 平均ロングエントリー価格 | |
 | 平均ショートエントリー価格 | |
 
-**ソース2: FXSSI Current Ratio**
-（参照URL: https://fxssi.com/tools/current-ratio）
-
-| 項目 | 値 |
-|---|---|
-| Buy % / Sell % (加重平均) | |
-
-**ソース3: IG Client Sentiment**
-（参照URL: https://www.ig.com/en/ 配下の各銘柄ページ）
-
-| 項目 | 値 |
-|---|---|
-| Long % / Short % | |
+**MyFXBookが取得不可の場合のみ、以下のフォールバックソースを使用:**
+- フォールバック1: FXSSI Current Ratio（https://fxssi.com/tools/current-ratio）
+- フォールバック2: IG Client Sentiment（https://www.ig.com/en/）
 
 **BTCUSDのみ追加ソース: CoinGlass**
 （参照URL: https://www.coinglass.com/LongShortRatio）
-※MyFXBook・FXSSIでBTCUSDデータが取得不可の場合の代替
 
 | 項目 | 値 |
 |---|---|
@@ -100,7 +73,7 @@
 
 **ICT的解釈（必須、各銘柄ごとに1〜2行）：**
 - 60%以上の偏りがある場合 → 反対側にLiquidity Pool（BSL or SSL）が存在と判断
-- MyFXBookの平均エントリー価格からSL集中帯を推定し、Smart Moneyがどちら側のLiquidityを狩りに行く可能性が高いかを分析
+- 平均エントリー価格からSL集中帯を推定し、Smart Moneyがどちら側のLiquidityを狩りに行く可能性が高いかを分析
 
 #### C. BTC ETFフロー（BTCUSDのみ）
 
@@ -121,20 +94,9 @@
 | PDH / PDL | | |
 | PWH / PWL | | |
 | PMH / PML | | |
-| 直近FVG帯 | | Bullish/Bearish、タイムフレーム明記 |
-| 直近OB帯 | | Bullish/Bearish、タイムフレーム明記 |
 | Equilibrium (50%) | | 直近Dealing Rangeの中間値 |
 
-**注意: FVG・OBの具体的な価格帯はAIの推定である。チャートで必ず確認すること。**
-
-#### E. Open Interest 日次変化（重要な変化がある場合のみ記載）
-
-前日比で5%以上の変化、または価格方向との明確な不整合がある場合のみ記載する。
-該当なしの場合は「OI: 特記事項なし」の1行で省略。
-
-| 先物 | 前日OI→当日OI | 変化(%) | 価格方向 | 整合性判定 |
-|---|---|---|---|---|
-| 該当銘柄のみ | | | ↑/↓ | 新規買い / ショートカバー / 新規売り / ロング決済 |
+※FVG・OBの具体的な価格帯はチャートで確認すること。レポートでは記載しない。
 
 ---
 
@@ -153,16 +115,14 @@
 | 日付 | 時刻 (JST) | 指標名 | 重要度 |
 |---|---|---|---|
 
-### 3-3. オプション満期情報（該当がある場合のみ）
-
-今週オプション満期があり、かつ現在価格が最大OIストライクに接近している場合のみ記載。
-該当なしの場合は「オプション満期: 特記事項なし」の1行で省略。
-
 ---
 
-## セクション4: FedWatch & 中銀動向
+## セクション4: FedWatch & 中銀動向（当日関連がある場合のみ）
 
-### FedWatch
+本日にFed/ECB/BOJ関連のイベント（発言予定、政策発表等）がある場合のみ記載する。
+該当なしの場合は「本日中銀関連イベントなし」の1行で省略。
+
+### FedWatch（FOMC週または確率に大きな変動があった場合のみ）
 
 | 項目 | 値 |
 |---|---|
@@ -171,51 +131,35 @@
 | 前日からの変化 | |
 
 ### 中銀発言（直近24時間、該当がある場合のみ）
-- **Fed / ECB / BOJ:** 該当する発言があれば各1〜2行で要約。該当なしの場合は「該当なし」
+- **Fed / ECB / BOJ:** 該当する発言があれば各1〜2行で要約
 
 ---
 
-## セクション5: インターマーケット相関チェック
+## セクション5: インターマーケット相関チェック（乖離発生時のみ）
 
-| ペア | 通常の相関 | 直近5日の動き | 乖離フラグ |
+以下のペアについて、直近5日間で通常の相関から乖離が発生している場合のみ記載する。
+全ペア正常の場合は「インターマーケット相関: 全ペア正常、特記事項なし」の1行で省略。
+
+監視対象ペア:
+- DXY vs XAUUSD（逆相関）
+- DXY vs USDJPY（順相関）
+- DXY vs BTCUSD（逆相関、不安定）
+- US10Y vs USDJPY（順相関）
+- US10Y vs XAUUSD（逆相関、実質金利経由）
+- BTCUSD vs NQ1!（順相関、リスクアセット）
+
+**乖離が検出された場合のみ以下を記載:**
+
+| ペア | 通常の相関 | 直近5日の動き | 乖離の解釈（1〜2行） |
 |---|---|---|---|
-| DXY vs XAUUSD | 逆相関 | 一致 / 乖離 | 正常 / 注意 |
-| DXY vs USDJPY | 順相関 | | |
-| DXY vs BTCUSD | 逆相関（不安定） | | |
-| US10Y vs USDJPY | 順相関 | | |
-| US10Y vs XAUUSD | 逆相関（実質金利経由） | | |
-| BTCUSD vs NQ1! | 順相関（リスクアセット） | | |
-
-**乖離フラグが「注意」の場合のみ:**
-- その乖離が何を意味するかを1〜2行で解釈
-- BTCUSDについてはETFフローやNQ1!との相関が優先されている可能性を考慮
 
 ---
 
-## セクション6: PO3 (Power of Three) マルチタイムフレーム分析
+## セクション6: Intraday PO3 シナリオ
 
-### 6-1. Weekly PO3 コンテキスト（曜日レベル）
+ウィークリーレポートで確定したWeekly PO3フェーズを前提とし、本日の各セッションのPO3予測のみを行う。
 
-今週の月曜から昨日までの値動きを踏まえ、週間PO3のどのフェーズに本日が位置するかを推定する。
-
-| 銘柄 | 月〜昨日の動き要約 | 今週のPO3進行状態 | 本日の推定フェーズ | 根拠（1〜2行） |
-|---|---|---|---|---|
-| DXY | | Acc進行中 / Manip発生済 / Dist段階 | | |
-| XAUUSD | | | | |
-| USDJPY | | | | |
-| BTCUSD | | | | |
-
-**Weekly PO3の典型パターン（参考、固定ではない）:**
-- Accumulation: 月〜火（レンジ形成、前週レベル付近で停滞）
-- Manipulation: 水前後（Judas Swing、偽ブレイクアウト）
-- Distribution: 木〜金（真の方向への展開）
-- ただしハイインパクト指標やFOMC/NFP等によりシフトする。前日までの実際の値動きから判断すること。
-
-### 6-2. Intraday PO3 シナリオ（セッションレベル）
-
-本日の各セッションでPO3がどう展開する可能性があるかを予測する。
-
-**注意: 以下の時間帯はPO3フェーズの「発生しやすい」時間帯であり、固定ではない。6-1のWeekly PO3コンテキストおよびHTFバイアスと整合する形で判断すること。**
+**Weekly PO3参照:** （ウィークリーレポートの結論を1行で記載。例: 「今週はManip完了→Dist段階、Bearish方向」）
 
 | 銘柄 | Asian (8:00-15:00) | London (16:00-19:00) | NY (21:30-翌1:00) |
 |---|---|---|---|
@@ -229,7 +173,9 @@
 - 具体的な予測（例: 「PDL付近でAcc継続」「BSL sweep後に反転 = Manip」等）
 - Weekly PO3との整合性（例: 「週間Distフェーズのため、Intraday Manipは浅い可能性」）
 
-### 6-3. PO3特殊条件チェック
+**チャート確認リマインダー:** Intraday PO3の判断精度を高めるため、エントリー前にCBDR / Asian Rangeの標準偏差プロジェクションをチャート上で確認すること。
+
+### PO3特殊条件チェック
 - ハイインパクト指標がKZ時間帯と重複 → Manipが増幅 or 前倒しの可能性
 - NFP/FOMC当日 → リリース時刻にManip+Distが集中、通常パターン崩壊の可能性
 - 週初（月曜）→ Weekly Acc段階の可能性、Intraday Distの到達距離が限定的な傾向
@@ -242,31 +188,47 @@
 
 セクション1〜6の全分析を統合し、本日の注目ポイントを提示する。
 
-### 7-1. マーケットニュース（最重要1〜2件）
+### 7-1. Liquidity Map（各銘柄）
+
+各銘柄について、現在価格の上下にあるLiquidityの構造と、Draw on Liquidityの方向（ERL / IRL）を記述する。
+
+| 銘柄 | 上のDraw（BSL方向） | 下のDraw（SSL方向） | Draw on Liquidity | ERL / IRL |
+|---|---|---|---|---|
+| DXY | 例: PDH ○○, PWH ○○ | 例: PDL ○○, PWL ○○ | BSL / SSL | ERL（外部レンジ）/ IRL（内部レンジ FVG埋め等） |
+| XAUUSD | | | | |
+| USDJPY | | | | |
+| BTCUSD | | | | |
+
+**ERL / IRL 判定基準:**
+- ERL（External Range Liquidity）: 直近Dealing RangeのHigh/Lowの外側にあるBSL/SSLが主要ターゲット
+- IRL（Internal Range Liquidity）: 直近Dealing Range内部の未到達FVG/OBが主要ターゲット
+- 判断に迷う場合は「ERL/IRL不明、チャートで確認」と記載
+
+### 7-2. マーケットニュース（最重要1〜2件）
 
 本日最も重要なニュースがあれば簡潔に記述:
 - 概要（1〜2行）
 - 影響銘柄と方向性
 - ICT的示唆（Liquidity grab / Stop hunt / Displacement等としてどう解釈するか）
 
-### 7-2. 最優先トレード注目ポイント
+### 7-3. 最優先トレード注目ポイント
 
 | 項目 | 内容 |
 |---|---|
 | 銘柄 | |
 | 方向 | Long / Short |
-| 注目ゾーン | OB/FVG根拠で注目すべき価格帯（チャートで要確認） |
-| Draw on Liquidity | BSL/SSL ターゲットの方向 |
+| 注目ゾーン | 価格帯の目安（チャートでOB/FVGを要確認） |
+| Draw on Liquidity | BSL/SSL ターゲットの方向 + ERL/IRL区分 |
 | 狙うKill Zone | London / NY |
 | PO3フェーズ | Weekly PO3 + Intraday PO3 の整合 |
-| 根拠（3〜5行） | DXYバイアス、リテールポジション、SMT確認、テクニカルレベルの収束を統合して記述 |
+| 根拠（3〜5行） | DXYバイアス、リテールポジション、テクニカルレベルの収束、ERL/IRL判定を統合して記述 |
 
 **提示の条件（最低3つが揃っていること）:**
 1. DXYバイアスとの整合性がある
 2. リテールポジションが60%以上一方に偏っている（逆張りの根拠）
-3. SMT Divergenceが発生している（またはSMTなしで方向一致）
-4. ICTテクニカルレベル（OB/FVG/EQH/EQL）に注目ゾーンが存在する
-5. PO3シナリオ（Weekly + Intraday）と合致する時間帯にエントリー可能
+3. ICTテクニカルレベル（PDH/PDL/PWH/PWL/EQH/EQL）に注目ゾーンが存在する
+4. PO3シナリオ（Weekly + Intraday）と合致する時間帯にエントリー可能
+5. ERL/IRL判定がバイアス方向と整合している
 6. BTCUSDの場合: ETFフロー方向がバイアスと整合（DXY整合性の代替）
 
 **3つ未満の場合:** 「本日は高確度のセットアップなし。様子見推奨。」と記載
@@ -279,12 +241,13 @@
 2. **テーブル:** テーブルを積極的に使用し視認性を確保する
 3. **絵文字:** 使用しない
 4. **時刻:** すべてJST（日本標準時、UTC+9）で記載する
-5. **簡潔さ:** 重要な変化がないセクションは省略または1行で済ませる。全体で3000〜5000字を目安とする
-6. **テクニカル価格の注意:** AIが出力するFVG・OB等の具体的な価格帯は推定値である。トレード前に必ずチャートで確認すること
+5. **簡潔さ:** 重要な変化がないセクションは省略または1行で済ませる。全体で2000〜3500字を目安とする
+6. **テクニカル価格の注意:** AIが出力するPDH/PDL/PWH/PWL等の価格は検索ベースの参考値である。FVG・OBの具体的な価格帯はチャートで確認すること
 7. **矛盾処理:** セクション間でデータが矛盾する場合、矛盾を明記した上で、どちらの要因が優先されるかを判断理由とともに記述する
 8. **ICT用語:** 以下の用語を正確に使用すること:
    - BSL, SSL, FVG, SIBI, BISI, OB, BB, MB, OTE, PO3
    - MSS, BOS, CHoCH, EQH, EQL
    - PDH, PDL, PWH, PWL, PMH, PML
    - Premium Zone, Discount Zone, Equilibrium
-   - IPDA, Dealing Range, SMT
+   - IPDA, Dealing Range, ERL, IRL
+   - NWOG, NDOG, CBDR, FLOUT
