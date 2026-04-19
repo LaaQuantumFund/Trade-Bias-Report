@@ -23,7 +23,7 @@ async def scrape_coinglass() -> dict:
     try:
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
-            context = await browser.new_context(user_agent=USER_AGENT)
+            context = await browser.new_context(user_agent=USER_AGENT, ignore_https_errors=True)
 
             # --- Long/Short Ratio ---
             page = await context.new_page()

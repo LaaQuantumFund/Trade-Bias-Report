@@ -34,7 +34,7 @@ async def scrape_ig_sentiment(symbol: str) -> dict:
     try:
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
-            context = await browser.new_context(user_agent=USER_AGENT)
+            context = await browser.new_context(user_agent=USER_AGENT, ignore_https_errors=True)
             page = await context.new_page()
 
             await page.goto(url, timeout=BROWSER_TIMEOUT, wait_until="domcontentloaded")

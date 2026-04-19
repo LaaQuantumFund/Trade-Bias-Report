@@ -125,7 +125,7 @@ async def _scrape_historical_investing() -> List[Dict]:
     try:
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
-            context = await browser.new_context(user_agent=USER_AGENT)
+            context = await browser.new_context(user_agent=USER_AGENT, ignore_https_errors=True)
             page = await context.new_page()
 
             await page.goto(page_url, timeout=BROWSER_TIMEOUT, wait_until="domcontentloaded")
@@ -185,7 +185,7 @@ async def _scrape_historical_investing_html(page_url: str) -> List[Dict]:
     try:
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
-            context = await browser.new_context(user_agent=USER_AGENT)
+            context = await browser.new_context(user_agent=USER_AGENT, ignore_https_errors=True)
             page = await context.new_page()
 
             await page.goto(page_url, timeout=BROWSER_TIMEOUT, wait_until="domcontentloaded")
@@ -238,7 +238,7 @@ async def _scrape_historical_stooq() -> List[Dict]:
     try:
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
-            context = await browser.new_context(user_agent=USER_AGENT)
+            context = await browser.new_context(user_agent=USER_AGENT, ignore_https_errors=True)
             page = await context.new_page()
 
             await page.goto(url, timeout=BROWSER_TIMEOUT * 2, wait_until="domcontentloaded")
@@ -308,7 +308,7 @@ async def _scrape_investing() -> Optional[dict]:
     try:
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
-            context = await browser.new_context(user_agent=USER_AGENT)
+            context = await browser.new_context(user_agent=USER_AGENT, ignore_https_errors=True)
             page = await context.new_page()
 
             await page.goto(url, timeout=BROWSER_TIMEOUT, wait_until="domcontentloaded")
@@ -385,7 +385,7 @@ async def _scrape_marketwatch() -> Optional[dict]:
     try:
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
-            context = await browser.new_context(user_agent=USER_AGENT)
+            context = await browser.new_context(user_agent=USER_AGENT, ignore_https_errors=True)
             page = await context.new_page()
 
             await page.goto(url, timeout=BROWSER_TIMEOUT, wait_until="domcontentloaded")

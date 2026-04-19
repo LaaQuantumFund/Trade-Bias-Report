@@ -25,7 +25,7 @@ async def _scrape_investing_fedwatch() -> Optional[dict]:
     try:
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
-            context = await browser.new_context(user_agent=USER_AGENT)
+            context = await browser.new_context(user_agent=USER_AGENT, ignore_https_errors=True)
             page = await context.new_page()
 
             await page.goto(url, timeout=BROWSER_TIMEOUT, wait_until="domcontentloaded")
@@ -109,6 +109,7 @@ async def scrape_fedwatch() -> dict:
                     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
                     "Accept-Language": "en-US,en;q=0.9",
                 },
+                ignore_https_errors=True,
             )
             page = await context.new_page()
 

@@ -187,6 +187,7 @@ async def scrape_economic_calendar() -> dict:
             context = await browser.new_context(
                 user_agent=USER_AGENT,
                 timezone_id="Asia/Tokyo",
+                ignore_https_errors=True,
             )
             page = await context.new_page()
 
