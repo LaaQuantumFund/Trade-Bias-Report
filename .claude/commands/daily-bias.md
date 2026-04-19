@@ -27,8 +27,10 @@ allowed-tools: Bash, Read, Write
 | `SLACK_NOTIFY_CHANNEL` | `#ceo` | Slack 通知先チャンネル |
 | `CLAUDE_CODE_REMOTE` | (未定義) | `true` なら Routines 環境と判定 |
 
-Routines 環境では、Setup script が `PROJECT_DIR` / `BRAIN_PATH` / `PYTHON_BIN` を
-clone 先パスに合わせて `$CLAUDE_ENV_FILE` に書き込んでいる前提とする。
+Routines 環境 (`CLAUDE_CODE_REMOTE=true`) では、Setup script が依存パッケージのみ
+インストールし、リポジトリの clone 先パスはこのコマンド側で動的に検出する
+(`find` を使う)。Setup script では `$CLAUDE_ENV_FILE` が未定義のため、
+環境変数の引き継ぎは Setup script ではなく当コマンド側の判定で行う。
 
 ## 実行ルール
 
@@ -41,15 +43,40 @@ clone 先パスに合わせて `$CLAUDE_ENV_FILE` に書き込んでいる前提
 
 `Bash` ツールで以下を実行する。`$ARGUMENTS` が `weekly` の場合は末尾に ` --weekly` を付ける。
 
+環境判定とパスの解決を冒頭で行い、Routines 環境では `find` で動的にパスを検出する。
+
 ```bash
-PROJECT_DIR="${PROJECT_DIR:-/Users/laa/dev/ict-daily-bias}"
-PYTHON_BIN="${PYTHON_BIN:-$PROJECT_DIR/.venv/bin/python3}"
+if [ "$CLAUDE_CODE_REMOTE" = "true" ]; then
+  # Routines (クラウド) 環境: clone 先パスを動的検出
+  PROJECT_DIR="${PROJECT_DIR:-$(find / -maxdepth 6 -type d -name 'Trade-Bias-Report' 2>/dev/null | head -1)}"
+  BRAIN_PATH="${BRAIN_PATH:-$(find / -maxdepth 6 -type d -name 'Brain' 2>/dev/null | head -1)}"
+  PYTHON_BIN="${PYTHON_BIN:-python3}"
+else
+  # ローカル (Mac) 環境: 固定パス
+  PROJECT_DIR="${PROJECT_DIR:-/Users/laa/dev/ict-daily-bias}"
+  BRAIN_PATH="${BRAIN_PATH:-$HOME/Brain}"
+  PYTHON_BIN="${PYTHON_BIN:-$PROJECT_DIR/.venv/bin/python3}"
+fi
+export PROJECT_DIR BRAIN_PATH PYTHON_BIN
+
+if [ -z "$PROJECT_DIR" ] || [ ! -d "$PROJECT_DIR" ]; then
+  echo "ERROR: PROJECT_DIR not found: '$PROJECT_DIR'" >&2
+  exit 1
+fi
+if [ -z "$BRAIN_PATH" ] || [ ! -d "$BRAIN_PATH" ]; then
+  echo "ERROR: BRAIN_PATH not found: '$BRAIN_PATH'" >&2
+  exit 1
+fi
+
 cd "$PROJECT_DIR" && "$PYTHON_BIN" main.py
 ```
 
 実行後、`$PROJECT_DIR/output/scraped_data_YYYY-MM-DD.json` と
 `$PROJECT_DIR/output/scraped_data_YYYY-MM-DD.txt` が生成される。
 exit code が 0 でなければ以降を中止し、stderr の内容をユーザーに報告する。
+
+後続の Step 4 (Brain への保存) と Step 5 (git push) でも同じ `$BRAIN_PATH` /
+`$PROJECT_DIR` を再利用するため、上の export を活かしたまま進めること。
 
 ## Step 2: マスタープロンプトとデータの読み込み
 
