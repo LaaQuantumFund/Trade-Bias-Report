@@ -9,22 +9,74 @@
 import asyncio
 import sys
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
-from config import INSTRUMENTS, OBSIDIAN_DAILY_PATH, OBSIDIAN_WEEKLY_PATH
+from config import INSTRUMENTS, OBSIDIAN_DAILY_PATH, OBSIDIAN_WEEKLY_PATH, FOMC_DATES_2026
 from scrapers.myfxbook import scrape_myfxbook
 from scrapers.fxssi import scrape_fxssi
 from scrapers.ig_sentiment import scrape_ig_sentiment
 from scrapers.coinglass import scrape_coinglass
 from scrapers.cot import fetch_cot_data
 from scrapers.twelvedata import fetch_price_data
+from scrapers.dxy import scrape_dxy
+from scrapers.economic_calendar import scrape_economic_calendar
+from scrapers.fedwatch import scrape_fedwatch
+from scrapers.btc_etf import scrape_btc_etf
+from scrapers.us10y import scrape_us10y
+from scrapers.validation import validate_all, apply_validation
 from generate_report import generate_report, load_master_prompt
+
+
+def _get_fomc_metadata(today: datetime = None) -> dict:
+    """FOMC週判定とメタデータを返す。
+
+    Returns:
+        {
+            "is_fomc_week": bool,
+            "next_fomc_date": str (YYYY-MM-DD),
+            "days_until_fomc": int,
+        }
+    """
+    if today is None:
+        today = datetime.now()
+    today_date = today.date()
+
+    fomc_dates = sorted(datetime.strptime(d, "%Y-%m-%d").date() for d in FOMC_DATES_2026)
+
+    # 次回FOMC日を特定
+    next_fomc = None
+    for fd in fomc_dates:
+        if fd >= today_date:
+            next_fomc = fd
+            break
+
+    if next_fomc is None:
+        return {
+            "is_fomc_week": False,
+            "next_fomc_date": "未定（2026年日程終了）",
+            "days_until_fomc": -1,
+        }
+
+    days_until = (next_fomc - today_date).days
+
+    # FOMC週判定: FOMC開催日を含む週の月曜〜金曜
+    fomc_weekday = next_fomc.weekday()  # 0=月
+    fomc_monday = next_fomc - timedelta(days=fomc_weekday)
+    fomc_friday = fomc_monday + timedelta(days=4)
+    is_fomc_week = fomc_monday <= today_date <= fomc_friday
+
+    return {
+        "is_fomc_week": is_fomc_week,
+        "next_fomc_date": next_fomc.strftime("%Y-%m-%d"),
+        "days_until_fomc": days_until,
+    }
 
 
 async def collect_all_data(weekly: bool = False) -> dict:
     """MyFXBook優先でデータを取得し、失敗銘柄はFXSSI→IGの順でフォールバックする。
     weekly=True のときは COT データも取得する。
+    新規データソース: DXY, US10Y, 経済指標カレンダー, FedWatch, BTC ETFフロー
     """
     print("[1/4] データ取得を開始...")
 
@@ -34,6 +86,11 @@ async def collect_all_data(weekly: bool = False) -> dict:
         "retail_sentiment": {},  # 銘柄ごとに1ソースのみ格納
         "coinglass": {},
         "cot": None,  # ウィークリー時のみ使用
+        "dxy": None,
+        "us10y": None,
+        "economic_calendar": None,
+        "fedwatch": None,
+        "btc_etf": None,
     }
 
     # --- Twelve Data: 価格データ取得 ---
@@ -134,13 +191,52 @@ async def collect_all_data(weekly: bool = False) -> dict:
             results["cot"] = {"text": None, "error": str(e)}
             print(f"  [ERROR] COT: {e}")
 
+    # --- 新規データソース（全実行で取得）---
+    # FOMC週判定（FedWatchスクレイピングの要否を決定）
+    fomc_meta = _get_fomc_metadata()
+    is_fomc_week = fomc_meta["is_fomc_week"]
+    print(f"  FOMC判定: is_fomc_week={is_fomc_week}, next={fomc_meta['next_fomc_date']}, "
+          f"days_until={fomc_meta['days_until_fomc']}")
+
+    # DXY, US10Y, 経済指標カレンダー, BTC ETF + FedWatch（FOMC週のみ）を並列取得
+    new_tasks = [
+        ("dxy", scrape_dxy()),
+        ("us10y", scrape_us10y()),
+        ("economic_calendar", scrape_economic_calendar()),
+        ("btc_etf", scrape_btc_etf()),
+    ]
+    if is_fomc_week:
+        new_tasks.append(("fedwatch", scrape_fedwatch()))
+        print("  新規データソース: 並列取得中（DXY, US10Y, Calendar, FedWatch, BTC ETF）...")
+    else:
+        print("  新規データソース: 並列取得中（DXY, US10Y, Calendar, BTC ETF）※FedWatchスキップ")
+
+    new_results = await asyncio.gather(*[t[1] for t in new_tasks], return_exceptions=True)
+
+    for i, (key, _) in enumerate(new_tasks):
+        res = new_results[i]
+        if isinstance(res, Exception):
+            results[key] = {"error": str(res)}
+            print(f"  [ERROR] {key}: {res}")
+        else:
+            results[key] = res
+            err = res.get("error") if isinstance(res, dict) else None
+            if err:
+                print(f"  [WARN]  {key}: {err}")
+            else:
+                print(f"  [OK]    {key}")
+
     return results
 
 
 def format_scraped_data(data: dict) -> str:
     """取得データをClaude APIに渡すテキスト形式に整形する。
     リテールセンチメントは銘柄ごとに1ソースのみ表示する。
+    バリデーション処理を実行し、異常データを除外する。
     """
+    # --- バリデーション実行 ---
+    validation_results = validate_all(data)
+
     lines = []
     lines.append(f"データ取得日時: {data['timestamp']}")
     lines.append("")
@@ -149,6 +245,58 @@ def format_scraped_data(data: dict) -> str:
     price_data = data.get("price_data")
     if price_data:
         lines.append(price_data)
+        lines.append("")
+
+    # --- DXY 価格データ ---
+    dxy = data.get("dxy")
+    if dxy and isinstance(dxy, dict) and dxy.get("current_price") is not None:
+        dxy_issues = validation_results.get("DXY", [])
+        lines.append("[DXY (スクレイピング)]")
+        lines.append(
+            f"現在値: {dxy['current_price']:,.3f} | 前日終値: {dxy.get('prev_close', 'N/A')} | "
+            f"前日比: {dxy.get('change', 'N/A')} ({dxy.get('change_pct', 'N/A')}%)"
+        )
+        if dxy.get("note"):
+            lines.append(f"※ {dxy['note']}")
+
+        # PDH/PDL等の出力（バリデーション結果を反映）
+        for h_key, l_key, label in [("pdh", "pdl", "PDH/PDL"), ("pwh", "pwl", "PWH/PWL"), ("pmh", "pml", "PMH/PML")]:
+            h, l = dxy.get(h_key), dxy.get(l_key)
+            has_issue = any(label in issue for issue in dxy_issues)
+            if has_issue:
+                issue_msg = next((i for i in dxy_issues if label in i), "")
+                lines.append(f"{label}: データ異常: {issue_msg}")
+            elif h is not None and l is not None:
+                note = "（EUR/USD逆数から推定）" if dxy.get("estimated") else ""
+                lines.append(f"{label.split('/')[0]}: {h:,.3f} / {label.split('/')[1]}: {l:,.3f}{note}")
+            else:
+                lines.append(f"{label}: 取得不可")
+
+        # IPDA レベル
+        for days, h_key, l_key in [(20, "ipda_20_high", "ipda_20_low"), (40, "ipda_40_high", "ipda_40_low")]:
+            h, l = dxy.get(h_key), dxy.get(l_key)
+            if h is not None and l is not None:
+                lines.append(f"IPDA {days}日: High {h:,.3f} / Low {l:,.3f}")
+            else:
+                lines.append(f"IPDA {days}日: 取得不可")
+
+        lines.append(f"ソース: {dxy.get('source', '不明')}")
+        lines.append("")
+    elif dxy and isinstance(dxy, dict) and dxy.get("error"):
+        lines.append(f"[DXY] 取得不可（{dxy['error']}）")
+        lines.append("")
+
+    # --- US10Y 利回り ---
+    us10y = data.get("us10y")
+    if us10y and isinstance(us10y, dict) and us10y.get("yield_pct") is not None:
+        lines.append("[US10Y]")
+        change_str = f"{us10y['change']:+.3f}" if us10y.get("change") is not None else "N/A"
+        pct_str = f"{us10y['change_pct']:+.2f}%" if us10y.get("change_pct") is not None else ""
+        lines.append(f"現在利回り: {us10y['yield_pct']:.3f}% | 前日比: {change_str} {pct_str}")
+        lines.append(f"ソース: {us10y.get('source', '不明')}")
+        lines.append("")
+    elif us10y and isinstance(us10y, dict) and us10y.get("error"):
+        lines.append(f"[US10Y] 取得不可（{us10y['error']}）")
         lines.append("")
 
     # --- リテールセンチメント（銘柄ごとに1ソース）---
@@ -190,6 +338,63 @@ def format_scraped_data(data: dict) -> str:
     else:
         lines.append("- BTCUSD: 取得不可")
 
+    # --- BTC ETFフロー ---
+    btc_etf = data.get("btc_etf")
+    if btc_etf and isinstance(btc_etf, dict):
+        lines.append("")
+        lines.append("### BTC ETF フロー")
+        if btc_etf.get("daily_flows"):
+            lines.append(f"ソース: {btc_etf.get('source', '不明')}")
+            for day in btc_etf["daily_flows"]:
+                flows = day.get("flows", {})
+                flow_parts = [f"{etf}: {v:+.1f}M" for etf, v in flows.items() if v is not None]
+                total = day.get("total")
+                total_str = f"合計: {total:+.1f}M" if total is not None else "合計: N/A"
+                lines.append(f"- {day.get('date', 'N/A')}: {', '.join(flow_parts) + ', ' if flow_parts else ''}{total_str}")
+        elif btc_etf.get("error"):
+            lines.append(f"取得不可（{btc_etf['error']}）")
+
+    # --- 経済指標カレンダー ---
+    calendar = data.get("economic_calendar")
+    if calendar and isinstance(calendar, dict):
+        lines.append("")
+        lines.append("### 経済指標カレンダー（ハイインパクト）")
+        if calendar.get("events"):
+            for ev in calendar["events"]:
+                lines.append(
+                    f"- {ev.get('date', '')} {ev.get('time_jst', '')} | "
+                    f"{ev.get('country', '')} | {ev.get('indicator', '')} | "
+                    f"前回: {ev.get('previous', 'N/A')} | 予想: {ev.get('forecast', 'N/A')}"
+                )
+        elif calendar.get("error"):
+            lines.append(f"取得不可（{calendar['error']}）")
+        else:
+            lines.append("該当なし")
+
+    # --- FedWatch（条件付き出力）---
+    fomc_meta = _get_fomc_metadata()
+    lines.append("")
+    lines.append("### FedWatch（FOMC週のみ）")
+    lines.append(f"is_fomc_week: {str(fomc_meta['is_fomc_week']).lower()}")
+    lines.append(f"next_fomc_date: {fomc_meta['next_fomc_date']}")
+    lines.append(f"days_until_fomc: {fomc_meta['days_until_fomc']}")
+
+    if fomc_meta["is_fomc_week"]:
+        fedwatch = data.get("fedwatch")
+        if fedwatch and isinstance(fedwatch, dict) and any(
+            fedwatch.get(k) is not None for k in ["hold_pct", "cut_25bp_pct", "cut_50bp_pct"]
+        ):
+            if fedwatch.get("hold_pct") is not None:
+                lines.append(f"- 据え置き確率: {fedwatch['hold_pct']}%")
+            if fedwatch.get("cut_25bp_pct") is not None:
+                lines.append(f"- 25bp利下げ確率: {fedwatch['cut_25bp_pct']}%")
+            if fedwatch.get("cut_50bp_pct") is not None:
+                lines.append(f"- 50bp利下げ確率: {fedwatch['cut_50bp_pct']}%")
+            if fedwatch.get("hike_25bp_pct") is not None:
+                lines.append(f"- 25bp利上げ確率: {fedwatch['hike_25bp_pct']}%")
+        else:
+            lines.append("FOMC週: FedWatchデータを手動で入力してください")
+
     # --- COT（ウィークリー時のみ）---
     cot = data.get("cot")
     if cot is not None:
@@ -200,7 +405,20 @@ def format_scraped_data(data: dict) -> str:
             err = cot.get("error", "取得不可")
             lines.append(f"COTデータ取得不可（{err}）")
 
-    return "\n".join(lines)
+    # --- バリデーション結果サマリー ---
+    if validation_results:
+        lines.append("")
+        lines.append("### データバリデーション警告")
+        for symbol, issues in validation_results.items():
+            for issue in issues:
+                lines.append(f"- {symbol}: データ異常: {issue}")
+
+    result_text = "\n".join(lines)
+
+    # バリデーション結果をテキストに適用
+    result_text = apply_validation(result_text, validation_results)
+
+    return result_text
 
 
 def save_report(report: str, scraped_data: dict, prefix: str = "Daily_Bias_Report", weekly: bool = False):
