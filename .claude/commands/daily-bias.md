@@ -129,6 +129,10 @@ mkdir -p "$BRAIN_PATH/Calendar/Daily-Bias" "$BRAIN_PATH/Calendar/Weekly-Bias"
 
 ### 5-1. Brain リポジトリへのコミットと push
 
+**重要**: Brain リポジトリへの push は必ず `master` ブランチに直接行うこと。
+新しい `claude/...` ブランチを作って push してはならない。社長の Mac は
+master ブランチを `git pull` するだけで取得できる運用のため。
+
 ```bash
 BRAIN_PATH="${BRAIN_PATH:-$HOME/Brain}"
 SUBDIR="Daily-Bias"  # weekly なら "Weekly-Bias"
@@ -136,15 +140,24 @@ PREFIX="Daily_Bias_Report"  # weekly なら "Weekly_Bias_Report"
 TITLE="ICT Daily Bias"  # weekly なら "ICT Weekly Bias"
 TODAY=$(date +%Y-%m-%d)
 
-cd "$BRAIN_PATH" && \
-  git add "Calendar/$SUBDIR/${PREFIX}_${TODAY}.md" && \
-  git commit -m "$TITLE $TODAY" && \
-  git push
+cd "$BRAIN_PATH"
+
+# master ブランチを明示的にチェックアウト (新ブランチを作らない)
+git checkout master 2>/dev/null || git checkout main
+
+# リモートの最新を取り込んでから commit (競合回避)
+git pull --rebase origin master 2>/dev/null || git pull --rebase origin main
+
+git add "Calendar/$SUBDIR/${PREFIX}_${TODAY}.md"
+git commit -m "$TITLE $TODAY"
+
+# 必ず master/main に直接 push (claude/... ブランチを作らない)
+git push origin HEAD:master 2>/dev/null || git push origin HEAD:main
 ```
 
-git push が認証エラーで失敗した場合、Routine 環境では GitHub proxy 経由で
-処理されるため、`Allow unrestricted branch pushes` が Brain リポジトリで
-有効化されているか確認する旨をユーザーに報告する。
+git push が認証エラーで失敗した場合、Routine の Repositories 設定で
+`Allow unrestricted branch pushes` が Brain リポジトリで有効化されているか
+確認する旨をユーザーに報告する (本来は ON のはず)。
 
 ### 5-2. Slack へ通知
 
