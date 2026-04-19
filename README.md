@@ -1,104 +1,234 @@
-# ICT Daily Bias Report — 自動生成パイプライン
+# ICT Daily / Weekly Bias Report — 自動生成パイプライン
 
-## 概要
+Playwright（ヘッドレスブラウザ）でリテールセンチメントデータと経済指標を取得し、
+Claude API にマスタープロンプトとデータを渡してレポートを生成する。
+出力は Markdown として Obsidian Vault（Brain）に保存される。
 
-Playwright（ヘッドレスブラウザ）でリテールセンチメントデータを取得し、
-Claude API (Opus 4.6) にマスタープロンプトとデータを渡してレポートを生成する。
-出力は Markdown ファイルとして Obsidian Vault に保存される。
+本リポジトリは **Claude Code Routines のクラウド環境で Run now 起動される** ことを前提に設計されている。
+ローカル実行も可能だが、本番運用は Routines 経由。
 
-## 前提条件
+---
+
+## 1. 前提条件
 
 - Python 3.11+
 - Anthropic API キー（https://console.anthropic.com/）
 - Node.js 18+（Playwright 用）
+- Twelve Data API キー（価格取得用）
 
-## セットアップ手順
+---
 
-### 1. リポジトリをクローンまたはコピー
+## 2. ローカルセットアップ
 
-```bash
-cd ~/projects  # 任意の場所
-cp -r ict-daily-bias ./
-cd ict-daily-bias
-```
-
-### 2. Python 仮想環境を作成
+### 2-1. 依存パッケージ
 
 ```bash
 python3 -m venv .venv
-source .venv/bin/activate   # Mac/Linux
-# .venv\Scripts\activate    # Windows
-```
-
-### 3. 依存パッケージをインストール
-
-```bash
+source .venv/bin/activate
 pip install -r requirements.txt
 playwright install chromium
 ```
 
-### 4. 環境変数を設定
+### 2-2. 環境変数
 
 ```bash
 cp .env.example .env
-# .env を編集して ANTHROPIC_API_KEY を設定
+# .env を編集して以下を設定:
+# - ANTHROPIC_API_KEY
+# - TWELVEDATA_API_KEY
+# - OBSIDIAN_VAULT_PATH（Brain へのローカルパス）
 ```
 
-### 5. 出力先を設定
-
-`.env` の `OBSIDIAN_VAULT_PATH` を自分の Obsidian Vault のパスに変更。
-
-### 6. 実行
+### 2-3. 実行
 
 ```bash
-python main.py
+python main.py                # Daily Bias
+python main.py --weekly       # Weekly Bias（実装に応じて）
 ```
 
-## Claude Code での使い方
+---
 
-Claude Code がインストール済みなら、プロジェクトディレクトリで：
-
-```bash
-claude "main.py を実行してデイリーバイアスレポートを生成して"
-```
-
-または初回セットアップごと任せる場合：
-
-```bash
-claude "このプロジェクトのセットアップを実行して。.envのANTHROPIC_API_KEYは sk-ant-xxx に設定して"
-```
-
-## ファイル構成
+## 3. ファイル構成
 
 ```
 ict-daily-bias/
-├── README.md              # このファイル
-├── requirements.txt       # Python 依存パッケージ
-├── .env.example           # 環境変数テンプレート
-├── main.py                # メインオーケストレーター
-├── config.py              # 設定読み込み
-├── generate_report.py     # Claude API でレポート生成
-├── master_prompt.md       # ICT Daily Bias マスタープロンプト（別途配置）
+├── README.md                 # このファイル
+├── requirements.txt          # Python 依存パッケージ
+├── .env.example              # 環境変数テンプレート
+├── main.py                   # メインオーケストレーター
+├── config.py                 # 設定読み込み
+├── master_prompt.md          # ICT Daily Bias マスタープロンプト
+├── master_prompt_weekly.md   # ICT Weekly Bias マスタープロンプト
+├── .claude/
+│   └── commands/
+│       ├── daily-bias.md     # Routine から参照されるスラッシュコマンド
+│       └── weekly-bias.md
 ├── scrapers/
 │   ├── __init__.py
-│   ├── myfxbook.py        # MyFXBook センチメント取得
-│   ├── fxssi.py           # FXSSI Current Ratio 取得
-│   ├── ig_sentiment.py    # IG Client Sentiment 取得
-│   ├── coinglass.py       # CoinGlass L/S Ratio + Funding Rate
+│   ├── myfxbook.py           # MyFXBook センチメント取得
+│   ├── fxssi.py              # FXSSI Current Ratio 取得
+│   ├── ig_sentiment.py       # IG Client Sentiment 取得
+│   ├── coinglass.py          # CoinGlass L/S Ratio + Funding Rate
 │   └── economic_calendar.py  # 経済指標カレンダー（Investing.com）
-└── output/                # ローカル出力（Obsidian にもコピー）
+└── output/                   # ローカル出力（Brain にも commit）
 ```
 
-## カスタマイズ
+---
 
-- `master_prompt.md` に ICT Daily Bias Report のマスタープロンプトを配置する
-- 銘柄の追加・変更は `config.py` の `INSTRUMENTS` を編集
-- スクレイピング対象サイトの変更は各 `scrapers/*.py` を編集
+## 4. Claude Code Routines での運用
 
-## トラブルシューティング
+本リポジトリは Routines 経由で Run now 起動される。Routines の共通設定ルール・Setup script テンプレート・
+トラブル一覧は `~/hq/infrastructure/routines-setup.md` を参照。**本 README はこのリポジトリ固有の設定のみを扱う。**
 
-- **Playwright がブロックされる場合:** `scrapers/` 内の各スクリプトで
-  User-Agent やヘッドレスモードの設定を調整
-- **API キーエラー:** `.env` の `ANTHROPIC_API_KEY` を確認
-- **サイト構造変更:** スクレイパーのセレクタを Claude Code に修正させる
-  `claude "myfxbook.py のセレクタが壊れている。サイトを確認して修正して"`
+### 4-1. Routine 設定（claude.ai/code/routines）
+
+Daily / Weekly で **Routine を 2 つに分割**して作成する（API trigger の `text` は非パースのため、引数で動作切替する代わりに Routine 自体を分ける）。
+
+| 項目 | ict-daily-bias | ict-weekly-bias |
+|---|---|---|
+| Trigger | API（Run now 起動用） | API（Run now 起動用） |
+| Repositories | `LaaQuantumFund/Trade-Bias-Report` + `LaaQuantumFund/Brain` | 同左 |
+| Allow unrestricted branch pushes | **両 repo とも ON** | 同左 |
+| Connectors | **Slack のみ**（Linear / GitHub は外す） | 同左 |
+| Model | **Sonnet 4.6**（Opus 4.7 は Stream timeout 多発） | 同左 |
+| Network access | **Full**（外部サイトのスクレイピング必要） | 同左 |
+
+### 4-2. Environment variables（Routine ごとに個別登録）
+
+| 変数 | 値 | 出典 |
+|---|---|---|
+| `TWELVEDATA_API_KEY` | `.env` の値をコピー | Twelve Data（価格 API） |
+| `ANTHROPIC_API_KEY` | 不要（Routines が自動注入） | — |
+
+### 4-3. Setup script
+
+`~/hq/infrastructure/routines-setup.md` § 8 の標準テンプレートを使い、`<REPO_NAME>` を `Trade-Bias-Report` に置換する。Setup script 内で `$CLAUDE_ENV_FILE` は**使わない**（§ 8 の罠参照）。
+
+### 4-4. プロンプト（Routine の prompt 欄）
+
+Routine 本体のプロンプトはシンプルに以下のみ記載し、本体ロジックは `.claude/commands/*.md` で版管理する:
+
+```
+リポジトリ内の .claude/commands/daily-bias.md を Read で読み込み、その指示に従って実行せよ。
+
+重要な遵守事項:
+- Brain への commit は master ブランチに直接 commit し push すること
+- Slack に通知する際のセッション URL は実値を埋め込むこと（${CLAUDE_CODE_REMOTE_SESSION_ID} のまま出力しない）
+- 出力レポートは 1500〜2000 字以内に簡潔化（Stream timeout 対策）
+```
+
+Weekly も同じ構造で `weekly-bias.md` を参照する。
+
+### 4-5. 起動
+
+- **Phase 2 初期**: iPhone Safari で `claude.ai/code/routines` → 対象 Routine の **Run now** をタップ
+- **MacBook**: CLI `/schedule run ict-daily-bias`
+- **Phase 2 後期**: Slack Workflow「バイアス」キーワード → Cloudflare Workers → API trigger
+  （中継 Bot の実装は `~/hq/infrastructure/slack-routines-operations.md` § 5 参照）
+
+---
+
+## 5. スクレイパー実装の鉄則
+
+### 5-1. Playwright の SSL 対策（Routines 環境で必須）
+
+Anthropic セキュリティプロキシの自己署名証明書を信頼するため、
+`new_context()` には必ず `ignore_https_errors=True` を指定する。
+これがないと Routines 環境で SSL 検証エラーで全スクレイパーが失敗する。
+
+```python
+context = await browser.new_context(
+    user_agent=USER_AGENT,
+    ignore_https_errors=True,  # Routines 環境で必須
+)
+```
+
+### 5-2. User-Agent
+
+- 各 `scrapers/*.py` で同一の User-Agent 文字列を使う
+- サイト側のブロックを受けた場合は、User-Agent を実ブラウザ相当に更新
+
+### 5-3. セレクタ保守
+
+スクレイピング対象サイトは UI 変更が入ることがある。セレクタが壊れたら:
+
+```bash
+claude "scrapers/myfxbook.py のセレクタが壊れている。サイトを確認して修正して"
+```
+
+（Claude Code のローカル実行で修正 → PR → マージ）
+
+---
+
+## 6. スラッシュコマンド（`.claude/commands/*.md`）の設計鉄則
+
+Routine から参照される `.claude/commands/daily-bias.md` および `weekly-bias.md` は、以下の鉄則に従う:
+
+### 6-1. 環境判定
+
+```bash
+if [ "$CLAUDE_CODE_REMOTE" = "true" ]; then
+  # Routines 環境
+else
+  # ローカル環境
+fi
+```
+
+### 6-2. プロジェクトパス解決
+
+- ローカル: 固定値（例: `~/dev/ict-daily-bias`）
+- Routines: for ループ + find で clone 先を検出（`~/hq/infrastructure/routines-setup.md` § 8 の Setup script と同じロジック）
+
+### 6-3. Brain への push
+
+```bash
+git checkout master
+git pull --rebase origin master   # 競合回避
+git push origin HEAD:master        # 新ブランチを作らない
+```
+
+### 6-4. Slack 通知時のセッション URL
+
+```bash
+SESSION_URL="https://claude.ai/code/${CLAUDE_CODE_REMOTE_SESSION_ID}"
+# SESSION_URL を Slack 投稿本文に埋め込む（変数名のまま投稿しない）
+```
+
+---
+
+## 7. カスタマイズ
+
+- **マスタープロンプト変更**: `master_prompt.md` / `master_prompt_weekly.md` を編集
+- **銘柄追加・変更**: `config.py` の `INSTRUMENTS` を編集
+- **スクレイピング対象サイト変更**: 各 `scrapers/*.py` を編集
+
+---
+
+## 8. トラブルシューティング（ICT Bias 固有）
+
+Routines 共通のトラブルは `~/hq/infrastructure/routines-setup.md` § 17 を参照。以下は本リポジトリ固有の症状。
+
+| 症状 | 原因 | 解決策 |
+|---|---|---|
+| スクレイピング全失敗（SSL エラー） | Anthropic セキュリティプロキシの自己署名証明書 | `ignore_https_errors=True` を全 `new_context()` に追加（§ 5-1） |
+| 特定サイトのみスクレイピング失敗 | サイト構造変更（セレクタ崩れ） | Claude Code に `scrapers/<site>.py` の修正を依頼（§ 5-3） |
+| Playwright がブロックされる | User-Agent が bot と判定された | User-Agent を実ブラウザ相当に更新 |
+| API キーエラー（Twelve Data） | Routine Environment に `TWELVEDATA_API_KEY` 未設定 | § 4-2 を確認し、Daily / Weekly 両方の Routine に登録 |
+| API キーエラー（Anthropic） | ローカル実行時の `.env` 未設定 | Routines 側は自動注入のため原因は .env 側。`cp .env.example .env` + 編集 |
+| Brain への push が `claude/...` ブランチへ | プロンプトに master 明示がない | Routine prompt に「master 直接 push」を明記（§ 4-4） |
+| Slack 投稿の URL が `${CLAUDE_CODE_REMOTE_SESSION_ID}` のまま | 変数展開されず文字列で投稿 | `.claude/commands/*.md` で bash `echo` を経由（§ 6-4） |
+| Daily / Weekly で違う動作が欲しいのに同じ結果になる | 1 つの Routine で `text` 引数切替を試みている | **Routine を Daily / Weekly で分ける**（§ 4-1） |
+
+---
+
+## 9. 関連ドキュメント
+
+- `~/hq/infrastructure/routines-setup.md` — Routines 構築の共通ガイド（Setup script テンプレート、トラブル表、モデル選択等）
+- `~/hq/infrastructure/slack-routines-operations.md` — Slack × Routines の運用方針 SSoT
+- Anthropic 公式: https://code.claude.com/docs/en/routines
+- Anthropic 公式: https://code.claude.com/docs/en/claude-code-on-the-web
+
+### GitHub リポジトリ
+
+- `LaaQuantumFund/Trade-Bias-Report` — 本リポジトリ（スクレイパー + プロンプト）
+- `LaaQuantumFund/Brain` — レポート出力先（master 直接 push）
