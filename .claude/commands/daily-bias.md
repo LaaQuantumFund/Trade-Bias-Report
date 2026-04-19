@@ -15,6 +15,21 @@ allowed-tools: Bash, Read, Write
 
 引数: $ARGUMENTS
 
+## 環境変数
+
+このコマンドは以下の環境変数で挙動を切り替える。未定義時のデフォルト値は Mac ローカル前提。
+
+| 変数 | デフォルト | 用途 |
+|---|---|---|
+| `PROJECT_DIR` | `/Users/laa/dev/ict-daily-bias` | ict-daily-bias リポジトリのパス |
+| `BRAIN_PATH` | `$HOME/Brain` | Brain リポジトリのパス |
+| `PYTHON_BIN` | `$PROJECT_DIR/.venv/bin/python3` | Python 実行コマンド |
+| `SLACK_NOTIFY_CHANNEL` | `#ceo` | Slack 通知先チャンネル |
+| `CLAUDE_CODE_REMOTE` | (未定義) | `true` なら Routines 環境と判定 |
+
+Routines 環境では、Setup script が `PROJECT_DIR` / `BRAIN_PATH` / `PYTHON_BIN` を
+clone 先パスに合わせて `$CLAUDE_ENV_FILE` に書き込んでいる前提とする。
+
 ## 実行ルール
 
 - 全ステップを順番に実行する。途中で失敗したら、原因をユーザーに報告して中止する。
@@ -24,41 +39,24 @@ allowed-tools: Bash, Read, Write
 
 ## Step 1: スクレイピング実行
 
-`Bash` ツールで以下を実行する。引数 `$ARGUMENTS` が `weekly` なら `--weekly` を付ける。
-
-ローカル (Mac) 実行:
+`Bash` ツールで以下を実行する。`$ARGUMENTS` が `weekly` の場合は末尾に ` --weekly` を付ける。
 
 ```bash
-cd /Users/laa/dev/ict-daily-bias && ./.venv/bin/python3 main.py
+PROJECT_DIR="${PROJECT_DIR:-/Users/laa/dev/ict-daily-bias}"
+PYTHON_BIN="${PYTHON_BIN:-$PROJECT_DIR/.venv/bin/python3}"
+cd "$PROJECT_DIR" && "$PYTHON_BIN" main.py
 ```
 
-`weekly` の場合:
-
-```bash
-cd /Users/laa/dev/ict-daily-bias && ./.venv/bin/python3 main.py --weekly
-```
-
-クラウド (Routines) 環境では `.venv` が無く、ワークスペースのパスも異なるので以下の形にする:
-
-```bash
-cd "$CLAUDE_PROJECT_DIR" && python3 main.py
-```
-
-(weekly なら `python3 main.py --weekly`)
-
-判定方法: 環境変数 `CLAUDE_CODE_REMOTE` が `true` ならクラウド形式、そうでなければローカル形式。
-
-実行後、`output/scraped_data_YYYY-MM-DD.json` と `output/scraped_data_YYYY-MM-DD.txt` が生成される。
+実行後、`$PROJECT_DIR/output/scraped_data_YYYY-MM-DD.json` と
+`$PROJECT_DIR/output/scraped_data_YYYY-MM-DD.txt` が生成される。
 exit code が 0 でなければ以降を中止し、stderr の内容をユーザーに報告する。
 
 ## Step 2: マスタープロンプトとデータの読み込み
 
-引数に応じて読み込むファイルを切り替える。
+引数に応じて読み込むファイルを切り替える。`Read` ツールで両方を読み込む。
 
-- 引数なし: `master_prompt.md` + `output/scraped_data_YYYY-MM-DD.txt`
-- `weekly`: `master_prompt_weekly.md` + `output/scraped_data_YYYY-MM-DD.txt`
-
-`Read` ツールで両方を読み込む。
+- 引数なし: `$PROJECT_DIR/master_prompt.md` + `$PROJECT_DIR/output/scraped_data_YYYY-MM-DD.txt`
+- `weekly`: `$PROJECT_DIR/master_prompt_weekly.md` + `$PROJECT_DIR/output/scraped_data_YYYY-MM-DD.txt`
 
 ## Step 3: 分析・レポート生成
 
@@ -87,36 +85,50 @@ exit code が 0 でなければ以降を中止し、stderr の内容をユーザ
 日付は実行時の JST 日付を使う。
 
 出力先:
-- 日次: `~/Brain/Calendar/Daily-Bias/Daily_Bias_Report_YYYY-MM-DD.md`
-- 週次: `~/Brain/Calendar/Weekly-Bias/Weekly_Bias_Report_YYYY-MM-DD.md`
+- 日次: `$BRAIN_PATH/Calendar/Daily-Bias/Daily_Bias_Report_YYYY-MM-DD.md`
+- 週次: `$BRAIN_PATH/Calendar/Weekly-Bias/Weekly_Bias_Report_YYYY-MM-DD.md`
 
-ディレクトリが存在しなければ `Bash` で `mkdir -p` を実行してから、`Write` ツールでレポートを保存する。
+ディレクトリが存在しなければ以下を実行してから、`Write` ツールでレポートを保存する。
+
+```bash
+BRAIN_PATH="${BRAIN_PATH:-$HOME/Brain}"
+mkdir -p "$BRAIN_PATH/Calendar/Daily-Bias" "$BRAIN_PATH/Calendar/Weekly-Bias"
+```
 
 ## Step 5: Routines 環境のみ追加処理
 
 環境変数 `CLAUDE_CODE_REMOTE` が `true` の場合のみ、以下を追加で実施する。
-ローカル (Mac) 実行ではこの Step をスキップする。
+ローカル (Mac) 実行ではこの Step を完全にスキップする。
 
 ### 5-1. Brain リポジトリへのコミットと push
 
 ```bash
-cd ~/Brain && \
-  git add Calendar/Daily-Bias/Daily_Bias_Report_YYYY-MM-DD.md && \
-  git commit -m "ICT Daily Bias YYYY-MM-DD" && \
+BRAIN_PATH="${BRAIN_PATH:-$HOME/Brain}"
+SUBDIR="Daily-Bias"  # weekly なら "Weekly-Bias"
+PREFIX="Daily_Bias_Report"  # weekly なら "Weekly_Bias_Report"
+TITLE="ICT Daily Bias"  # weekly なら "ICT Weekly Bias"
+TODAY=$(date +%Y-%m-%d)
+
+cd "$BRAIN_PATH" && \
+  git add "Calendar/$SUBDIR/${PREFIX}_${TODAY}.md" && \
+  git commit -m "$TITLE $TODAY" && \
   git push
 ```
 
-(週次なら `Calendar/Weekly-Bias/...` および `ICT Weekly Bias YYYY-MM-DD`)
+git push が認証エラーで失敗した場合、Routine 環境では GitHub proxy 経由で
+処理されるため、`Allow unrestricted branch pushes` が Brain リポジトリで
+有効化されているか確認する旨をユーザーに報告する。
 
 ### 5-2. Slack へ通知
 
-Slack MCP 経由で `#trading` チャンネル (未指定なら DM) に以下を投稿する。
+Slack MCP 経由で `${SLACK_NOTIFY_CHANNEL:-#ceo}` チャンネルに以下を投稿する。
 
-- 件名: `ICT {Daily|Weekly} Bias Report - YYYY-MM-DD`
+- ヘッダー: `ICT {Daily|Weekly} Bias Report - YYYY-MM-DD`
 - 本文:
-  - レポートのセクション0 (エグゼクティブサマリー) を抜粋
-  - 保存先ファイル名
+  - レポートのセクション0 (エグゼクティブサマリー) を抜粋 (5行)
+  - 保存先ファイル名 (例: `Calendar/Daily-Bias/Daily_Bias_Report_2026-04-19.md`)
   - セッション URL: `https://claude.ai/code/${CLAUDE_CODE_REMOTE_SESSION_ID}`
+  - データ取得失敗があった場合は警告として明示
 
 ## Step 6: ユーザーへの最終応答
 
