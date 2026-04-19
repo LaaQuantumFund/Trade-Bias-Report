@@ -1,9 +1,12 @@
-"""ICT Daily Bias Report — メインオーケストレーター
+"""ICT Daily Bias Report — スクレイピングオーケストレーター
+
+このスクリプトはデータ取得のみを担当する。
+LLM 分析・レポート生成・Brain 保存は `.claude/commands/daily-bias.md`
+スラッシュコマンド (Claude Code セッション内で実行) が責任を持つ。
 
 実行方法:
-    python main.py              # 通常実行
-    python main.py --scrape-only  # データ取得のみ（レポート生成しない）
-    python main.py --skip-scrape  # スクレイピングスキップ（手動データで生成）
+    python main.py            # 日次データ取得 (output/scraped_data_*.{json,txt} を保存)
+    python main.py --weekly   # 週次データ取得 (COT を含む)
 """
 
 import asyncio
@@ -12,7 +15,7 @@ import json
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from config import INSTRUMENTS, OBSIDIAN_DAILY_PATH, OBSIDIAN_WEEKLY_PATH, FOMC_DATES_2026
+from config import INSTRUMENTS, FOMC_DATES_2026
 from scrapers.myfxbook import scrape_myfxbook
 from scrapers.fxssi import scrape_fxssi
 from scrapers.ig_sentiment import scrape_ig_sentiment
@@ -25,7 +28,6 @@ from scrapers.fedwatch import scrape_fedwatch
 from scrapers.btc_etf import scrape_btc_etf
 from scrapers.us10y import scrape_us10y
 from scrapers.validation import validate_all, apply_validation
-from generate_report import generate_report, load_master_prompt
 
 
 def _get_fomc_metadata(today: datetime = None) -> dict:
@@ -421,21 +423,17 @@ def format_scraped_data(data: dict) -> str:
     return result_text
 
 
-def save_report(report: str, scraped_data: dict, prefix: str = "Daily_Bias_Report", weekly: bool = False):
-    """レポートをローカルとObsidian Vaultに保存する。"""
+def save_scraped(scraped_data: dict, formatted_text: str) -> tuple[Path, Path]:
+    """取得データを output/ に保存する。
+
+    JSON (生データ) と TXT (formatted) の2種を出力する。
+    LLM 分析・レポート生成は Claude Code スラッシュコマンド側が担当する。
+    """
     today = datetime.now().strftime("%Y-%m-%d")
-    filename = f"{prefix}_{today}.md"
-
-    # ローカル保存
-    output_dir = Path("output")
+    output_dir = Path(__file__).parent / "output"
     output_dir.mkdir(exist_ok=True)
-    local_path = output_dir / filename
-    local_path.write_text(report, encoding="utf-8")
-    print(f"  ローカル保存: {local_path}")
 
-    # 取得データのJSON保存（デバッグ用）
     json_path = output_dir / f"scraped_data_{today}.json"
-    # raw_text を除外してJSON保存
     clean_data = json.loads(json.dumps(scraped_data, default=str))
     for source in clean_data.values():
         if isinstance(source, dict):
@@ -444,66 +442,32 @@ def save_report(report: str, scraped_data: dict, prefix: str = "Daily_Bias_Repor
                     symbol_data.pop("raw_text", None)
     json_path.write_text(json.dumps(clean_data, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    # Obsidian Vault に保存（Daily/Weekly で出力先を分ける）
-    vault_path = OBSIDIAN_WEEKLY_PATH if weekly else OBSIDIAN_DAILY_PATH
-    vault_path.mkdir(parents=True, exist_ok=True)
-    obsidian_path = vault_path / filename
-    obsidian_path.write_text(report, encoding="utf-8")
-    print(f"  Obsidian保存: {obsidian_path}")
+    txt_path = output_dir / f"scraped_data_{today}.txt"
+    txt_path.write_text(formatted_text, encoding="utf-8")
+
+    return json_path, txt_path
 
 
 async def main():
-    scrape_only = "--scrape-only" in sys.argv
-    skip_scrape = "--skip-scrape" in sys.argv
     weekly = "--weekly" in sys.argv
 
     print("=" * 60)
     mode = "Weekly" if weekly else "Daily"
-    print(f"ICT {mode} Bias Report Generator — {datetime.now().strftime('%Y/%m/%d %H:%M')}")
+    print(f"ICT {mode} Bias Scraper — {datetime.now().strftime('%Y/%m/%d %H:%M')}")
     print("=" * 60)
 
-    # Step 1: データ取得
-    if skip_scrape:
-        print("[SKIP] スクレイピングをスキップ")
-        scraped_data = {"timestamp": datetime.now().isoformat()}
-        formatted_data = "（スクレイピングスキップ。Web検索でデータを取得してください。）"
-    else:
-        scraped_data = await collect_all_data(weekly=weekly)
-        formatted_data = format_scraped_data(scraped_data)
+    scraped_data = await collect_all_data(weekly=weekly)
+    formatted_data = format_scraped_data(scraped_data)
 
-    print(f"\n[2/4] 取得データサマリー:")
+    print(f"\n[取得データサマリー]")
     print(formatted_data)
 
-    if scrape_only:
-        print("\n[DONE] --scrape-only モード。レポート生成をスキップ。")
-        return
-
-    # Step 2: マスタープロンプト読み込み
-    prompt_path = "master_prompt_weekly.md" if weekly else "master_prompt.md"
-    print(f"\n[3/4] マスタープロンプト読み込み（{prompt_path}）...")
-    try:
-        master_prompt = load_master_prompt(prompt_path)
-        print(f"  読み込み完了（{len(master_prompt)} 文字）")
-    except FileNotFoundError as e:
-        print(f"  [ERROR] {e}")
-        return
-
-    # Step 3: レポート生成
-    print(f"\n[4/4] Claude API ({__import__('config').CLAUDE_MODEL}) でレポート生成中...")
-    try:
-        report = generate_report(formatted_data, master_prompt)
-        print(f"  生成完了（{len(report)} 文字）")
-    except Exception as e:
-        print(f"  [ERROR] レポート生成失敗: {e}")
-        return
-
-    # Step 4: 保存
-    prefix = "Weekly_Bias_Report" if weekly else "Daily_Bias_Report"
-    print(f"\n[SAVE] レポートを保存中...")
-    save_report(report, scraped_data, prefix=prefix, weekly=weekly)
+    json_path, txt_path = save_scraped(scraped_data, formatted_data)
 
     print(f"\n{'=' * 60}")
-    print("完了!")
+    print(f"完了!")
+    print(f"  JSON: {json_path}")
+    print(f"  TXT:  {txt_path}")
     print(f"{'=' * 60}")
 
 
