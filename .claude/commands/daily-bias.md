@@ -148,13 +148,25 @@ git push が認証エラーで失敗した場合、Routine 環境では GitHub p
 
 ### 5-2. Slack へ通知
 
-Slack MCP 経由で `${SLACK_NOTIFY_CHANNEL:-#ceo}` チャンネルに以下を投稿する。
+Slack MCP 経由で `#ceo` チャンネルに以下を投稿する
+(環境変数 `SLACK_NOTIFY_CHANNEL` が設定されていれば、その値を優先)。
+
+**重要**: 投稿本文に含めるセッション URL は、必ず以下の bash で取得した実際の値を使用すること。
+プレースホルダー `${CLAUDE_CODE_REMOTE_SESSION_ID}` の文字列をそのまま投稿してはならない。
+
+```bash
+echo "https://claude.ai/code/${CLAUDE_CODE_REMOTE_SESSION_ID}"
+```
+
+→ 出力された URL (例: `https://claude.ai/code/session_01HJK...`) を本文に埋め込む。
+
+投稿フォーマット:
 
 - ヘッダー: `ICT {Daily|Weekly} Bias Report - YYYY-MM-DD`
 - 本文:
   - レポートのセクション0 (エグゼクティブサマリー) を抜粋 (5行)
   - 保存先ファイル名 (例: `Calendar/Daily-Bias/Daily_Bias_Report_2026-04-19.md`)
-  - セッション URL: `https://claude.ai/code/${CLAUDE_CODE_REMOTE_SESSION_ID}`
+  - セッション URL (上記 bash の結果を文字列として埋め込み)
   - データ取得失敗があった場合は警告として明示
 
 ## Step 6: ユーザーへの最終応答
