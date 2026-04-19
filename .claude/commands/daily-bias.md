@@ -81,6 +81,19 @@ if [ -z "$BRAIN_PATH" ] || [ ! -d "$BRAIN_PATH" ]; then
   exit 1
 fi
 
+# Routines 環境のみ: Playwright Chromium が存在するか確認し、無ければインストール
+# Setup script で入れていても、PLAYWRIGHT_BROWSERS_PATH の不一致等で
+# 見つからないことがあるため、念のため再インストール (idempotent)
+if [ "$CLAUDE_CODE_REMOTE" = "true" ]; then
+  if ! "$PYTHON_BIN" -c "from playwright.sync_api import sync_playwright; sync_playwright().__enter__().chromium.launch(headless=True).close()" >/dev/null 2>&1; then
+    echo "Playwright chromium not usable, installing..."
+    "$PYTHON_BIN" -m pip install playwright >/dev/null 2>&1 || true
+    "$PYTHON_BIN" -m playwright install chromium 2>&1 | tail -5
+  else
+    echo "Playwright chromium OK"
+  fi
+fi
+
 cd "$PROJECT_DIR" && "$PYTHON_BIN" main.py
 ```
 
