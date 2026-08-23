@@ -7,16 +7,15 @@
   その場で変換すればよく、URL を増やす必要がない。
 
 URL の形:
-  https://<project>.supabase.co/storage/v1/object/public/bias-reports/<prefix>/{daily|weekly}/latest.html
+  https://<project>.supabase.co/storage/v1/object/public/bias-reports/{daily|weekly}/latest.html
 
-  バケットは公開だが `<prefix>` は推測困難な乱数（1Password 管理）なので、
-  URL を知らない第三者は到達できない。将来 HP の「Daily Bias」コーナーから
-  この URL にリンクを張れば、そのまま公開コーナーになる。
+  HP の「チャート外分析」コーナーからこの URL を直接リンクするため、パスは
+  推測可能な公開パスにしている（2026-08-23 に秘匿 prefix 方式から変更）。
+  レポートは生成された時点で誰でも読める前提。
 
 必要な環境変数（`.env.tpl` 経由で `op run` が注入する）:
   SUPABASE_URL                 プロジェクトの API URL
   SUPABASE_SERVICE_ROLE_KEY    アップロード用（RLS を迂回するため service_role）
-  BIAS_REPORT_PATH_PREFIX      推測困難な固定パス断片
 
 設計方針:
   publish_report.py と同じく、失敗してもレポート生成本体を止めない。
@@ -45,25 +44,23 @@ class MissingConfig(RuntimeError):
     """必要な環境変数が揃っていない。"""
 
 
-def _env() -> tuple[str, str, str]:
+def _env() -> tuple[str, str]:
     base = (os.environ.get("SUPABASE_URL") or "").rstrip("/")
     key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or ""
-    prefix = (os.environ.get("BIAS_REPORT_PATH_PREFIX") or "").strip("/")
     missing = [
         name for name, value in (
             ("SUPABASE_URL", base),
             ("SUPABASE_SERVICE_ROLE_KEY", key),
-            ("BIAS_REPORT_PATH_PREFIX", prefix),
         ) if not value
     ]
     if missing:
         raise MissingConfig("未設定の環境変数: " + ", ".join(missing))
-    return base, key, prefix
+    return base, key
 
 
-def object_path(prefix: str, mode: str) -> str:
-    """`<prefix>/{mode}/latest.html`。mode は daily / weekly。"""
-    return f"{prefix}/{mode}/latest.html"
+def object_path(mode: str) -> str:
+    """`{mode}/latest.html`。mode は daily / weekly。日付は入れない。"""
+    return f"{mode}/latest.html"
 
 
 def public_url(base: str, path: str) -> str:
@@ -77,12 +74,12 @@ def upload(html_path: Path, mode: str) -> Optional[str]:
         return None
 
     try:
-        base, key, prefix = _env()
+        base, key = _env()
     except MissingConfig as exc:
         print(f"[upload] WARN: {exc}（アップロードをスキップ）")
         return None
 
-    path = object_path(prefix, mode)
+    path = object_path(mode)
     body = html_path.read_bytes()
     req = urllib.request.Request(
         f"{base}/storage/v1/object/{BUCKET}/{path}",

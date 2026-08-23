@@ -19,7 +19,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from scripts import upload_report  # noqa: E402
 
 
-ENV_KEYS = ("SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "BIAS_REPORT_PATH_PREFIX")
+ENV_KEYS = ("SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY")
 
 
 @pytest.fixture
@@ -29,24 +29,23 @@ def html(tmp_path: Path) -> Path:
     return p
 
 
-def _set_env(monkeypatch, prefix: str = "abc123") -> None:
+def _set_env(monkeypatch) -> None:
     monkeypatch.setenv("SUPABASE_URL", "https://proj.supabase.co/")
     monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "service-key")
-    monkeypatch.setenv("BIAS_REPORT_PATH_PREFIX", prefix)
 
 
 def test_object_path_has_no_date(html):
     """日付が入ると URL が毎回変わってしまう。latest 固定であることを保つ。"""
-    path = upload_report.object_path("abc123", "weekly")
-    assert path == "abc123/weekly/latest.html"
+    path = upload_report.object_path("weekly")
+    assert path == "weekly/latest.html"
     assert "2026" not in path
 
 
 def test_public_url_shape():
-    url = upload_report.public_url("https://proj.supabase.co", "abc123/daily/latest.html")
+    url = upload_report.public_url("https://proj.supabase.co", "daily/latest.html")
     assert url == (
         "https://proj.supabase.co/storage/v1/object/public/"
-        "bias-reports/abc123/daily/latest.html"
+        "bias-reports/daily/latest.html"
     )
 
 
@@ -67,7 +66,7 @@ def test_missing_html_is_soft(tmp_path, monkeypatch, capsys):
 
 
 def test_upload_uses_upsert_and_returns_fixed_url(html, monkeypatch, capsys):
-    _set_env(monkeypatch, prefix="p9q8")
+    _set_env(monkeypatch)
     captured = {}
 
     class _Res:
@@ -91,10 +90,10 @@ def test_upload_uses_upsert_and_returns_fixed_url(html, monkeypatch, capsys):
     url = upload_report.upload(html, "weekly")
     assert url == (
         "https://proj.supabase.co/storage/v1/object/public/"
-        "bias-reports/p9q8/weekly/latest.html"
+        "bias-reports/weekly/latest.html"
     )
     assert captured["method"] == "POST"
-    assert captured["url"].endswith("/storage/v1/object/bias-reports/p9q8/weekly/latest.html")
+    assert captured["url"].endswith("/storage/v1/object/bias-reports/weekly/latest.html")
     # 上書き前提の運用なので x-upsert が無いと 2 回目以降が 409 で落ちる
     assert captured["headers"].get("X-upsert".lower()) == "true"
     assert "no-cache" in captured["headers"].get("Cache-control".lower(), "")
