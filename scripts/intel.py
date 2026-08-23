@@ -877,6 +877,26 @@ def publish_report_pdf(md_path: Path, timeout: Optional[int] = None) -> dict:
     return result
 
 
+def upload_report_html(html_path_str: Optional[str], mode: str) -> Optional[str]:
+    """生成済み HTML を Supabase Storage の固定 URL へ発行する（非致命）。
+
+    Telegram には本文ではなくこの URL だけを載せる運用のため、失敗しても
+    レポート本体は成功のまま返し、サマリー側で「発行に失敗」と明示する。
+    """
+    if not html_path_str:
+        return None
+    try:
+        from scripts.upload_report import upload as _upload
+    except Exception as exc:  # noqa: BLE001
+        print(f"[intel] [WARN] upload_report の読み込みに失敗: {exc}")
+        return None
+    try:
+        return _upload(Path(html_path_str), mode)
+    except Exception as exc:  # noqa: BLE001 — 発行はレポート本体を止めない
+        print(f"[intel] [WARN] HTML の URL 発行に失敗（非致命・続行）: {exc}")
+        return None
+
+
 def recover_drive_copy(md_path: Path, timeout: int = 180) -> dict:
     """生成済み PDF を Drive へコピーし直す（publish タイムアウト後のリカバリ）。
 
@@ -1041,9 +1061,13 @@ def build_notify_summary(run_record: dict, mode: str, date_str: str,
     lines.append("出力:")
     md_disp = _brain_display(outputs.get("md_path"))
     lines.append(f"・Brain MD: {md_disp}" if md_disp else "・Brain MD: 保存なし")
+    report_url = outputs.get("report_url")
     html_disp = _short_path(outputs.get("html_path"))
-    if html_disp:
-        lines.append(f"・HTML: {html_disp}")
+    if report_url:
+        # Telegram から直接開ける唯一の行。Daily / Weekly で URL は固定。
+        lines.append(f"・レポート: {report_url}")
+    elif html_disp:
+        lines.append(f"・HTML: {html_disp}（URL 発行に失敗・ローカルのみ）")
     else:
         lines.append("・HTML: 生成に失敗（logs/publish_debug_*.log 参照）")
 
@@ -1064,7 +1088,7 @@ def build_notify_summary(run_record: dict, mode: str, date_str: str,
     duration = run_record.get("duration_s")
     if duration:
         lines.append("")
-        lines.append(f"所要 {duration:.0f} 秒 / 本文は MD か HTML を参照")
+        lines.append(f"所要 {duration:.0f} 秒 / 本文は上の URL か Brain MD を参照")
 
     return "\n".join(lines) + "\n"
 
@@ -1192,6 +1216,10 @@ def cmd_brief(args) -> int:
                 print(f"[intel] [WARN] Drive: {pub['drive_warn']}")
             if not pub:
                 print("[intel] [WARN] 発行はスキップされた（publish_report.py の WARN を参照）")
+            report_url = upload_report_html(pub.get("html_path"), mode)
+            if report_url:
+                run_record["outputs"]["report_url"] = report_url
+                print(f"[intel] URL 発行: {report_url}")
         except Exception as pub_exc:  # noqa: BLE001 — 発行はレポート本体を止めない
             run_record["outputs"]["pdf_error"] = f"{type(pub_exc).__name__}: {pub_exc}"
             print(f"[intel] [WARN] 発行に失敗（非致命・続行）: {pub_exc}")

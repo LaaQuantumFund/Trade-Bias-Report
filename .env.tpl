@@ -4,3 +4,8 @@
 
 TWELVEDATA_API_KEY=op://Agents/TwelveData/credential
 FRED_API_KEY=op://Agents/Fred/credential
+
+# Bias Report HTML の発行先（Supabase Storage・固定 URL、2026-08-23〜）
+SUPABASE_URL=op://Agents/FundamentalMacroAnalysis/supabase_url
+SUPABASE_SERVICE_ROLE_KEY=op://Agents/FundamentalMacroAnalysis/supabase_service_role_key
+BIAS_REPORT_PATH_PREFIX=op://Agents/FundamentalMacroAnalysis/report_path_prefix

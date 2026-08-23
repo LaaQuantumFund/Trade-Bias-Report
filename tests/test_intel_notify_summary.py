@@ -159,3 +159,19 @@ def test_bias_labels():
     assert intel._bias_label(0.0) == "中立"
     assert intel._bias_label(-0.3) == "ややベア"
     assert intel._bias_label(-0.9) == "強ベア"
+
+
+def test_summary_shows_report_url_when_published():
+    """Telegram から押せるのはこの 1 行だけ。URL があれば最優先で出す。"""
+    rec = _record()
+    url = "https://proj.supabase.co/storage/v1/object/public/bias-reports/x/daily/latest.html"
+    rec["outputs"] = {**rec["outputs"], "report_url": url, "html_path": "/o/r.html"}
+    out = intel.build_notify_summary(rec, "daily", "2026-08-13")
+    assert f"・レポート: {url}" in out
+
+
+def test_summary_falls_back_to_local_html_without_url():
+    rec = _record()
+    rec["outputs"] = {**rec["outputs"], "report_url": None, "html_path": "/o/r.html"}
+    out = intel.build_notify_summary(rec, "daily", "2026-08-13")
+    assert "URL 発行に失敗" in out
