@@ -7,10 +7,13 @@
   その場で変換すればよく、URL を増やす必要がない。
 
 URL の形:
-  https://<project>.supabase.co/storage/v1/object/public/bias-reports/{daily|weekly}/latest.html
+  読者に渡す URL   https://www.laa-inc.com/reports/{daily|weekly}
+  実体の置き場所   <project>.supabase.co/.../bias-reports/{daily|weekly}/latest.html
 
-  HP の「チャート外分析」コーナーからこの URL を直接リンクするため、パスは
-  推測可能な公開パスにしている（2026-08-23 に秘匿 prefix 方式から変更）。
+  Supabase は公開バケットの HTML を必ず `text/plain` で返す（同社ドメイン上で
+  任意の HTML を実行させないための仕様）ため、Storage の URL を直接開くと
+  ソースが素で表示される。HP の `/reports/[kind]` route handler が取り直して
+  `text/html` + CSP で配信するので、外に出す URL は必ずそちらを使う。
   レポートは生成された時点で誰でも読める前提。
 
 必要な環境変数（`.env.tpl` 経由で `op run` が注入する）:
@@ -37,6 +40,9 @@ from pathlib import Path
 from typing import Optional
 
 BUCKET = "bias-reports"
+# 読者向けの入口。実体は Supabase だが、直リンクするとソース表示になるため
+# HP の route handler を必ず経由させる（app/reports/[kind]/route.ts）。
+SITE_BASE = os.environ.get("BIAS_REPORT_SITE_BASE", "https://www.laa-inc.com/reports")
 UPLOAD_TIMEOUT = float(os.environ.get("UPLOAD_REPORT_TIMEOUT", "60"))
 
 
@@ -63,8 +69,14 @@ def object_path(mode: str) -> str:
     return f"{mode}/latest.html"
 
 
-def public_url(base: str, path: str) -> str:
+def storage_url(base: str, path: str) -> str:
+    """Supabase 上の実体 URL（デバッグ用。読者には渡さない）。"""
     return f"{base}/storage/v1/object/public/{BUCKET}/{path}"
+
+
+def reader_url(mode: str) -> str:
+    """読者に渡す固定 URL。"""
+    return f"{SITE_BASE.rstrip('/')}/{mode}"
 
 
 def upload(html_path: Path, mode: str) -> Optional[str]:
@@ -109,7 +121,7 @@ def upload(html_path: Path, mode: str) -> Optional[str]:
         print(f"[upload] WARN: アップロード失敗: {type(exc).__name__}: {exc}")
         return None
 
-    url = public_url(base, path)
+    url = reader_url(mode)
     print(f"URL: {url}")
     return url
 

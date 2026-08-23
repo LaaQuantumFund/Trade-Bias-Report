@@ -41,12 +41,19 @@ def test_object_path_has_no_date(html):
     assert "2026" not in path
 
 
-def test_public_url_shape():
-    url = upload_report.public_url("https://proj.supabase.co", "daily/latest.html")
+def test_storage_url_shape():
+    url = upload_report.storage_url("https://proj.supabase.co", "daily/latest.html")
     assert url == (
         "https://proj.supabase.co/storage/v1/object/public/"
         "bias-reports/daily/latest.html"
     )
+
+
+def test_reader_url_points_at_the_site_not_supabase():
+    """Supabase の直リンクは text/plain でソース表示になるため外に出さない。"""
+    url = upload_report.reader_url("weekly")
+    assert url == "https://www.laa-inc.com/reports/weekly"
+    assert "supabase" not in url
 
 
 def test_missing_env_is_soft(html, monkeypatch, capsys):
@@ -88,10 +95,8 @@ def test_upload_uses_upsert_and_returns_fixed_url(html, monkeypatch, capsys):
     monkeypatch.setattr(upload_report.urllib.request, "urlopen", fake_urlopen)
 
     url = upload_report.upload(html, "weekly")
-    assert url == (
-        "https://proj.supabase.co/storage/v1/object/public/"
-        "bias-reports/weekly/latest.html"
-    )
+    # アップロード先は Supabase だが、返す URL は読者向けの HP 側
+    assert url == "https://www.laa-inc.com/reports/weekly"
     assert captured["method"] == "POST"
     assert captured["url"].endswith("/storage/v1/object/bias-reports/weekly/latest.html")
     # 上書き前提の運用なので x-upsert が無いと 2 回目以降が 409 で落ちる
