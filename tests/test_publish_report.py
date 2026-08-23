@@ -27,7 +27,7 @@ def test_drive_root_detects_cloudstorage_drive():
 
 
 def test_missing_input_md_is_soft_failure(capsys):
-    rc = publish_report.publish(Path("/no/such/report.md"))
+    rc = publish_report.publish(Path("/no/such/report.md"), pdf=True)
     assert rc == 0
     out = capsys.readouterr().out
     assert "WARN" in out and "存在しない" in out
@@ -55,7 +55,7 @@ def test_publish_renders_in_output_and_copies_to_drive(tmp_path, monkeypatch, ca
         lambda key: str(drive_dir) if key == "gdrive_pdf_dir" else None,
     )
 
-    rc = publish_report.publish(src_md)
+    rc = publish_report.publish(src_md, html=False, pdf=True)
     assert rc == 0
     out = capsys.readouterr().out
     assert "PDF: " in out and "Drive: " in out
@@ -82,7 +82,7 @@ def test_publish_no_drive_skips_copy(tmp_path, monkeypatch, capsys):
     called = []
     monkeypatch.setattr(publish_report, "_copy_to_drive", lambda pdf: called.append(pdf))
 
-    rc = publish_report.publish(src_md, no_drive=True)
+    rc = publish_report.publish(src_md, html=False, pdf=True, no_drive=True)
     assert rc == 0
     assert called == []
     assert "PDF: " in capsys.readouterr().out
@@ -224,7 +224,41 @@ def test_render_failure_is_soft_and_cleans_up(tmp_path, monkeypatch, capsys):
         raise RuntimeError("playwright crashed")
 
     monkeypatch.setattr(publish_report, "render", broken_render)
-    rc = publish_report.publish(src_md)
+    rc = publish_report.publish(src_md, html=False, pdf=True)
     assert rc == 0
     assert "PDF 生成に失敗" in capsys.readouterr().out
     assert not (output_dir / src_md.name).exists(), "一時 MD は失敗時も削除される"
+
+
+def test_html_is_the_default_output(tmp_path, monkeypatch, capsys):
+    """既定は HTML のみ。PDF も Drive も触らない（Drive 容量を食わせない）。"""
+    src_md = tmp_path / "brain" / "Daily_Bias_Report_2026-08-11.md"
+    src_md.parent.mkdir(parents=True)
+    src_md.write_text("# report", encoding="utf-8")
+    output_dir = tmp_path / "output"
+    monkeypatch.setattr(publish_report, "OUTPUT_DIR", output_dir)
+    monkeypatch.setattr(publish_report, "build_page", lambda md: "<html>ok</html>")
+
+    def must_not_render(*a, **k):
+        raise AssertionError("既定で PDF を作ってはいけない")
+
+    monkeypatch.setattr(publish_report, "render", must_not_render)
+
+    assert publish_report.publish(src_md) == 0
+    out = capsys.readouterr().out
+    assert "HTML: " in out
+    assert "PDF: " not in out and "Drive: " not in out
+    assert (output_dir / "Daily_Bias_Report_2026-08-11.html").exists()
+
+
+def test_html_failure_is_soft(tmp_path, monkeypatch, capsys):
+    src_md = tmp_path / "r.md"
+    src_md.write_text("# report", encoding="utf-8")
+    monkeypatch.setattr(publish_report, "OUTPUT_DIR", tmp_path / "output")
+
+    def broken(md):
+        raise RuntimeError("render broke")
+
+    monkeypatch.setattr(publish_report, "build_page", broken)
+    assert publish_report.publish(src_md) == 0
+    assert "HTML 生成に失敗" in capsys.readouterr().out

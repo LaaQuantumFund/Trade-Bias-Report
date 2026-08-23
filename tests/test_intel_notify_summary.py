@@ -97,11 +97,23 @@ def test_summary_states_no_risk_events_explicitly():
     assert "24h のリスクイベント: なし" in out
 
 
-def test_summary_flags_missing_pdf():
+def test_summary_flags_missing_html():
+    """既定出力は HTML なので、欠落を通知本文で明示する。"""
     rec = _record()
-    rec["outputs"] = {**rec["outputs"], "pdf_path": None, "drive_path": None}
+    rec["outputs"] = {**rec["outputs"], "html_path": None,
+                      "pdf_path": None, "drive_path": None}
     out = intel.build_notify_summary(rec, "daily", "2026-08-13")
-    assert "PDF: 発行に失敗" in out
+    assert "HTML: 生成に失敗" in out
+
+
+def test_summary_omits_pdf_line_when_pdf_is_off():
+    """PDF 既定オフ。作っていない時に失敗行を出さない。"""
+    rec = _record()
+    rec["outputs"] = {**rec["outputs"], "html_path": "/o/r.html",
+                      "pdf_path": None, "drive_path": None}
+    out = intel.build_notify_summary(rec, "daily", "2026-08-13")
+    assert "HTML: " in out
+    assert "PDF" not in out
 
 
 def test_summary_flags_pdf_without_drive():

@@ -1,24 +1,32 @@
-"""Bias Report の MD を PDF 化して Google Drive 同期フォルダへ発行する。
+"""Bias Report の MD を人間が読む形（HTML / 必要なら PDF）に発行する。
 
 入力: 任意の場所にある Bias Report Markdown（Brain 内の MD でも可）
 出力:
-  1. PDF: output/<同ベース名>.pdf（render_report.render を再利用）
-  2. Drive コピー: config.yaml `output.gdrive_pdf_dir` へ（--no-drive で省略）
+  1. HTML: output/<同ベース名>.html（既定。screen_report.build_page を再利用）
+  2. PDF: output/<同ベース名>.pdf（`--pdf` 指定時のみ）
+  3. Drive コピー: config.yaml `output.gdrive_pdf_dir` へ（PDF を作った時のみ）
+
+既定を HTML にした理由（2026-08-23）:
+  人間が読む層は連続スクロールの HTML の方が読みやすく、ページ境界での図表の
+  分断も起きない。PDF は Drive の容量を食う一方で日常運用では開かれないため、
+  **生成経路は残したまま既定オフ**にした（`--pdf` でいつでも復活できる）。
 
 設計方針（レポート生成本体を止めない）:
-  - すべてのソフト障害（入力欠落 / PDF 生成失敗 / Drive 未マウント / コピー失敗）は
+  - すべてのソフト障害（入力欠落 / レンダリング失敗 / Drive 未マウント / コピー失敗）は
     WARN を stderr ではなく stdout に出して exit 0 で終える。
   - Drive 未マウント判定: パスが CloudStorage 配下の場合、ドライブルート
     （.../CloudStorage/GoogleDrive-xxx）が存在しなければ未マウントとみなし、
     偽のローカルディレクトリを mkdir で作らずスキップする。
   - 成功時の stdout 契約（intel.py がパースする）:
+        HTML: <生成した HTML の絶対パス>
         PDF: <生成した PDF の絶対パス>
         Drive: <Drive へコピーした PDF の絶対パス>
 
 使い方:
     python scripts/publish_report.py ~/Brain/Calendar/Daily-Bias/Daily_Bias_Report_2026-08-11.md
-    python scripts/publish_report.py <md_path> --no-drive
-    python scripts/publish_report.py <md_path> --drive-only  # 既存 PDF の Drive 再コピー
+    python scripts/publish_report.py <md_path> --pdf             # HTML + PDF + Drive
+    python scripts/publish_report.py <md_path> --pdf --no-drive  # PDF まで、Drive はしない
+    python scripts/publish_report.py <md_path> --drive-only      # 既存 PDF の Drive 再コピー
 """
 
 from __future__ import annotations
@@ -39,6 +47,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from config import get_output_setting  # noqa: E402
 from scripts.render_report import render  # noqa: E402
+from scripts.screen_report import build_page  # noqa: E402
 
 OUTPUT_DIR = PROJECT_ROOT / "output"
 
@@ -163,14 +172,39 @@ def _copy_to_drive(pdf_path: Path) -> Optional[Path]:
     return drive_path
 
 
-def publish(md_path: Path, no_drive: bool = False, drive_only: bool = False) -> int:
-    """MD → PDF → Drive コピー。常に 0 を返す（ソフト障害はスキップして続行）。
+def _render_html_in_output(md_path: Path) -> Optional[Path]:
+    """MD を output/ で画面用 HTML 化して HTML パスを返す。失敗時は WARN を出して None。"""
+    OUTPUT_DIR.mkdir(exist_ok=True)
+    html_path = OUTPUT_DIR / f"{md_path.stem}.html"
+    t0 = time.time()
+    try:
+        html = build_page(md_path.read_text(encoding="utf-8"))
+        html_path.write_text(html, encoding="utf-8")
+        print(f"[publish] HTML 生成 {time.time() - t0:.1f}s")
+        return html_path
+    except Exception as exc:  # noqa: BLE001 — ソフト障害は exit 0
+        print(f"[publish] WARN: HTML 生成に失敗: {type(exc).__name__}: {exc}")
+        return None
 
-    drive_only=True は PDF を生成し直さず、output/ の既存 PDF を Drive へ
+
+def publish(md_path: Path, html: bool = True, pdf: bool = False,
+            no_drive: bool = False, drive_only: bool = False) -> int:
+    """MD → HTML（既定）/ PDF → Drive コピー。常に 0 を返す。
+
+    ソフト障害はすべてスキップして続行する。
+    drive_only=True は何もレンダリングせず、output/ の既存 PDF を Drive へ
     コピーするだけのリカバリモード（Playwright を起動しない）。
     """
     if not md_path.exists():
         print(f"[publish] WARN: 入力 MD が存在しないためスキップ: {md_path}")
+        return 0
+
+    if html and not drive_only:
+        html_path = _render_html_in_output(md_path)
+        if html_path is not None:
+            print(f"HTML: {html_path.resolve()}")
+
+    if not (pdf or drive_only):
         return 0
 
     if drive_only:
@@ -194,9 +228,17 @@ def publish(md_path: Path, no_drive: bool = False, drive_only: bool = False) -> 
 
 def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Bias Report MD を PDF 化して Google Drive 同期フォルダへ発行する"
+        description="Bias Report MD を HTML（既定）／PDF に発行する"
     )
     parser.add_argument("md_path", help="Bias Report Markdown のパス（Brain 内でも可）")
+    parser.add_argument(
+        "--pdf", action="store_true",
+        help="PDF も生成して Google Drive へコピーする（既定は HTML のみ）",
+    )
+    parser.add_argument(
+        "--no-html", action="store_true",
+        help="HTML 生成を省略する",
+    )
     parser.add_argument(
         "--no-drive", action="store_true",
         help="Google Drive へのコピーを省略（PDF 生成のみ）",
@@ -210,6 +252,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         parser.error("--no-drive と --drive-only は同時に指定できない")
     return publish(
         Path(args.md_path).expanduser(),
+        html=not args.no_html,
+        pdf=args.pdf or args.no_drive,
         no_drive=args.no_drive,
         drive_only=args.drive_only,
     )

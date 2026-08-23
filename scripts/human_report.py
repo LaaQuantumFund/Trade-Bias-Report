@@ -65,8 +65,23 @@ SCORE_LABELS = {
 }
 
 
+# ダッシュボード層に流れ込む文字列は MD の生断片なので、inline 記法（**bold** /
+# __bold__ / `code`）がそのまま表示されてしまう。エスケープ前に記号だけ落とす。
+_MD_INLINE_RE = re.compile(r"\*\*(.+?)\*\*|__(.+?)__|`([^`]+)`", re.S)
+
+
+def strip_inline_md(s: str) -> str:
+    """inline markdown の装飾記号を落とし、中身のテキストだけ残す。"""
+    prev = None
+    while prev != s:
+        prev = s
+        s = _MD_INLINE_RE.sub(lambda m: m.group(1) or m.group(2) or m.group(3), s)
+    # _trim で閉じ記号ごと切られた場合に残る片側の ** を掃除する
+    return s.replace("**", "")
+
+
 def esc(s: str) -> str:
-    return html_mod.escape(str(s), quote=True)
+    return html_mod.escape(strip_inline_md(str(s)), quote=True)
 
 
 def _trim(s: Optional[str], n: int) -> str:

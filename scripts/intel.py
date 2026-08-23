@@ -801,14 +801,16 @@ def save_md_to_brain(md_text: str, mode: str, date_str: str,
 
 
 def _parse_publish_stdout(stdout: Optional[str]) -> dict:
-    """publish_report.py の stdout 契約（PDF: / Drive: 行）をパースする。
+    """publish_report.py の stdout 契約（HTML: / PDF: / Drive: 行）をパースする。
 
     Drive 関連の WARN 行も拾う。Drive コピーは「ファイルが置けても同期していない」
     という失敗の仕方をするため、理由を通知本文まで運ぶ必要がある。
     """
     result: dict = {}
     for line in (stdout or "").splitlines():
-        if line.startswith("PDF:"):
+        if line.startswith("HTML:"):
+            result["html_path"] = line.split(":", 1)[1].strip()
+        elif line.startswith("PDF:"):
             result["pdf_path"] = line.split(":", 1)[1].strip()
         elif line.startswith("Drive:"):
             result["drive_path"] = line.split(":", 1)[1].strip()
@@ -1039,6 +1041,13 @@ def build_notify_summary(run_record: dict, mode: str, date_str: str,
     lines.append("出力:")
     md_disp = _brain_display(outputs.get("md_path"))
     lines.append(f"・Brain MD: {md_disp}" if md_disp else "・Brain MD: 保存なし")
+    html_disp = _short_path(outputs.get("html_path"))
+    if html_disp:
+        lines.append(f"・HTML: {html_disp}")
+    else:
+        lines.append("・HTML: 生成に失敗（logs/publish_debug_*.log 参照）")
+
+    # PDF は既定オフ（publish_report.py --pdf の時だけ出る）。出た時だけ行を足す。
     drive_disp = _drive_display(outputs.get("drive_path"))
     pdf_disp = _short_path(outputs.get("pdf_path"))
     if drive_disp:
@@ -1048,8 +1057,6 @@ def build_notify_summary(run_record: dict, mode: str, date_str: str,
         drive_warn = outputs.get("drive_warn")
         if drive_warn:
             lines.append(f"・⚠️ {drive_warn}")
-    else:
-        lines.append("・PDF: 発行に失敗（Drive 未反映・logs/publish_debug_*.log 参照）")
 
     if outputs.get("brain_synced") is False:
         lines.append("・⚠️ Brain の git 同期に失敗（他端末には未反映）")
@@ -1057,7 +1064,7 @@ def build_notify_summary(run_record: dict, mode: str, date_str: str,
     duration = run_record.get("duration_s")
     if duration:
         lines.append("")
-        lines.append(f"所要 {duration:.0f} 秒 / 本文は MD か PDF を参照")
+        lines.append(f"所要 {duration:.0f} 秒 / 本文は MD か HTML を参照")
 
     return "\n".join(lines) + "\n"
 
@@ -1168,9 +1175,12 @@ def cmd_brief(args) -> int:
         run_record["outputs"]["md_path"] = str(md_path)
         print(f"[intel] MD 保存: {md_path}")
 
-        # Step 2.5: PDF 発行 + Google Drive コピー（非致命: 失敗しても run は続行）
+        # Step 2.5: HTML 発行（既定）+ PDF/Drive（--pdf 時のみ）。非致命: 失敗しても続行
         try:
             pub = publish_report_pdf(md_path)
+            if pub.get("html_path"):
+                run_record["outputs"]["html_path"] = pub["html_path"]
+                print(f"[intel] HTML 発行: {pub['html_path']}")
             if pub.get("pdf_path"):
                 run_record["outputs"]["pdf_path"] = pub["pdf_path"]
                 print(f"[intel] PDF 発行: {pub['pdf_path']}")
@@ -1181,10 +1191,10 @@ def cmd_brief(args) -> int:
                 run_record["outputs"]["drive_warn"] = pub["drive_warn"]
                 print(f"[intel] [WARN] Drive: {pub['drive_warn']}")
             if not pub:
-                print("[intel] [WARN] PDF 発行はスキップされた（publish_report.py の WARN を参照）")
-        except Exception as pub_exc:  # noqa: BLE001 — PDF はレポート本体を止めない
+                print("[intel] [WARN] 発行はスキップされた（publish_report.py の WARN を参照）")
+        except Exception as pub_exc:  # noqa: BLE001 — 発行はレポート本体を止めない
             run_record["outputs"]["pdf_error"] = f"{type(pub_exc).__name__}: {pub_exc}"
-            print(f"[intel] [WARN] PDF 発行に失敗（非致命・続行）: {pub_exc}")
+            print(f"[intel] [WARN] 発行に失敗（非致命・続行）: {pub_exc}")
 
         # Step 3 前半: Bias-Review-Log エントリ生成（デフォルト銘柄のみ、非致命）
         review_meta = None
